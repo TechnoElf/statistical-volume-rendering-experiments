@@ -1,0 +1,8 @@
+/dataset/
+/latest_out.png
+/latest_y.png
+
+/.direnv/
+/.envrc
+
+/__pycache__/
