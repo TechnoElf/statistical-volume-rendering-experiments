@@ -109,6 +109,22 @@
           pyopenvdb
           torch
         ]);
+
+        v3 = pkgs.stdenv.mkDerivation rec {
+          pname = "v3";
+          version = "0.5.2";
+          src = pkgs.fetchsvn {
+            url = "svn://svn.code.sf.net/p/volren/code/";
+            rev = "1170";
+            hash = "sha256-Qdauk3vElPMBcJKzcVW25W1+xmOJ7lNLTTl0HTWWfeE=";
+          };
+          sourceRoot = "${src.name}/viewer";
+          nativeBuildInputs = [ pkgs.cmake ];
+          buildInputs = [ pkgs.libGL pkgs.libGLU pkgs.libglut ];
+          cmakeFlags = [
+            "-DBUILD_VIEWER_APPS=OFF"
+          ];
+        };
       in
       {
         devShells.default = pkgs.mkShell {
@@ -125,6 +141,7 @@
             cmake
             ninja
             pkg-config
+            v3
           ];
 
           shellHook = ''
@@ -135,9 +152,6 @@
               pkgs.vulkan-loader
               pkgs.stdenv.cc.cc.lib
             ]}:$LD_LIBRARY_PATH"
-
-            echo "Python: $(python --version)"
-            echo "Slang: $(slangc -version 2>&1)"
           '';
         };
       }

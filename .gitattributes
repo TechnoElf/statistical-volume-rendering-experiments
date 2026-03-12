@@ -1,0 +1,2 @@
+*.pvm filter=lfs diff=lfs merge=lfs -text
+*.vdb filter=lfs diff=lfs merge=lfs -text

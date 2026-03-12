@@ -51,7 +51,7 @@ def init_grid_with_noise():
 
 
 def init_grid_with_cloud():
-    grid, metadata = vdb.readAll("assets/wdas_cloud_sixteenth.vdb")
+    grid, metadata = vdb.readAll("assets/MRI-Head.vdb")
     grid = grid[0]
     print(grid.metadata)
     grid_acc = grid.getConstAccessor()
@@ -60,9 +60,13 @@ def init_grid_with_cloud():
         for y in range(density_grid_size):
             for x in range(density_grid_size):
                 density, active = grid_acc.probeValue(
-                    (grid_start[0] + x, grid_start[1] + y - 20, grid_start[2] + z)
+                    (
+                        grid_start[0] + x * 2,
+                        grid_start[1] + y * 2,
+                        grid_start[2] + z * 2,
+                    )
                 )
-                densities[z, y, x] = density
+                densities[z, y, x] = density * 1.0
 
 
 init_grid_with_cloud()
