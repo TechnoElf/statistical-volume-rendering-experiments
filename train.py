@@ -33,7 +33,7 @@ if os.path.exists("model.pth"):
 model.to(device)
 
 loss_fn = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.00001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 for epoch in range(epochs):
     model.train()

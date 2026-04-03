@@ -49,30 +49,6 @@ class PathTracerDataset(Dataset):
             in_img = torch.from_numpy(in_img).permute(2, 0, 1)
             in_imgs.append(in_img)
 
-        # x_pos_img = torch.from_numpy(
-        #     np.tile(
-        #         np.linspace(0, 1, in_imgs[0].shape[2]).astype(np.float32)
-        #         / in_imgs[0].shape[2],
-        #         [in_imgs[0].shape[1], 1],
-        #     )
-        # )
-        x_pos_img = torch.from_numpy(
-            np.ones((in_imgs[0].shape[1], in_imgs[0].shape[2]), dtype=np.float32)
-        )
-
-        # y_pos_img = torch.from_numpy(
-        #     np.tile(
-        #         np.linspace(0, 1, in_imgs[0].shape[1]).astype(np.float32)
-        #         / in_imgs[0].shape[1],
-        #         [in_imgs[0].shape[2], 1],
-        #     )
-        # ).T
-        y_pos_img = torch.from_numpy(
-            np.ones((in_imgs[0].shape[1], in_imgs[0].shape[2]), dtype=np.float32)
-        )
-
-        in_imgs.append(torch.stack((x_pos_img, y_pos_img)))
-
         in_imgs = torch.cat(in_imgs)
         return (in_imgs, out_img)
 
@@ -142,7 +118,7 @@ class OutConv(nn.Module):
 class PathTracerModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.inc = DoubleConv(22, 32)
+        self.inc = DoubleConv(20, 32)
         self.down1 = Down(32, 64)
         self.down2 = Down(64, 128)
         self.down3 = Down(128, 256)
