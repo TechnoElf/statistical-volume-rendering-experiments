@@ -4,13 +4,24 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    nixgl.url = "github:nix-community/nixGL";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, nixgl }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
           inherit system;
+          config = {
+            allowUnfree = true;
+            config.cudaSupport = true;
+            config.cudaVersion = "12";
+          };
+        };
+
+        nixglPinned = pkgs.callPackage (nixgl.outPath + "/default.nix") {
+          nvidiaVersion = "580.126.09";
+          nvidiaHash = "sha256-TKxT5I+K3/Zh1HyHiO0kBZokjJ/YCYzq/QiKSYmG7CY=";
         };
 
         python = pkgs.python313;
@@ -107,7 +118,7 @@
           slangpy
           opensimplex
           pyopenvdb
-          torch
+          torch-bin
         ]);
 
         v3 = pkgs.stdenv.mkDerivation rec {
@@ -142,6 +153,7 @@
             ninja
             pkg-config
             v3
+            nixglPinned.nixVulkanNvidia
           ];
 
           shellHook = ''
@@ -152,6 +164,8 @@
               pkgs.vulkan-loader
               pkgs.stdenv.cc.cc.lib
             ]}:$LD_LIBRARY_PATH"
+
+            export CUDA_PATH=${pkgs.cudatoolkit}
           '';
         };
       }

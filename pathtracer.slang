@@ -39,7 +39,7 @@ void main(uint3 tid: SV_DispatchThreadID) {
 
     // Intersect with volume bounding box
     float t_near, t_far;
-    float3 color = float3(0.0, 0.0, 0.0); // Background color
+    float3 color = float3(0.1, 0.1, 0.1); // Background color
 
     if (intersectBox(local_origin, local_dir, t_near, t_far)) {
         t_near = max(t_near, 0.0);
@@ -53,8 +53,8 @@ void main(uint3 tid: SV_DispatchThreadID) {
         float3 dir = local_dir;
         float remaining_dist = t_far - t_near;
 
-        float depth_transmittance = transmittance(pos, dir, remaining_dist, sigma_t, 32);
-        color = float3(0.0, 1.0, 1.0) * depth_transmittance;
+        float depth_transmittance = transmittance(pos, dir, remaining_dist, sigma_t, 256);
+        color *= depth_transmittance;
 
         const int MAX_BOUNCES = 8;
         for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
@@ -80,11 +80,11 @@ void main(uint3 tid: SV_DispatchThreadID) {
 
             // Compute scattering
             float albedo = sigma_s / sigma_t;
-            throughput *= albedo;
+            throughput *= albedo * sampleAlbedo(pos);
 
             // Add contribution from direct lighting
             float3 direct = estimateDirectLight(pos, sigma_t, max_density);
-            float phase = phaseHG(dot(-dir, normalize(light_dir)), g);
+            float phase = phaseHG(max(dot(-dir, normalize(light_dir)), 0.5), g);
             color += throughput * direct * phase;
 
             // Sample new direction
@@ -97,8 +97,6 @@ void main(uint3 tid: SV_DispatchThreadID) {
             }
             remaining_dist = new_t_far;
         }
-    } else {
-        color = float3(0.0, 1.0, 1.0);
     }
 
     // Progressive accumulation

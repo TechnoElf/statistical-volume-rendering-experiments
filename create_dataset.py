@@ -1,4 +1,5 @@
 import math
+import os
 import pathlib
 
 import matplotlib.pyplot as plt
@@ -8,7 +9,7 @@ import openvdb as vdb
 import slangpy as spy
 from PIL import Image
 
-offset = 45
+offset = 0
 
 opensimplex.seed(2)
 
@@ -68,7 +69,28 @@ def init_grid_with_cloud():
                 densities[z, y, x] = density
 
 
-init_grid_with_noise()
+def init_grid_with_head():
+    grid, metadata = vdb.readAll("assets/MRI-Head.vdb")
+    grid = grid[0]
+    print(grid.metadata)
+    grid_acc = grid.getConstAccessor()
+    grid_start = grid.metadata["file_bbox_min"]
+    for z in range(density_grid_size):
+        for y in range(density_grid_size):
+            for x in range(density_grid_size):
+                density, active = grid_acc.probeValue(
+                    (
+                        grid_start[0] + x * 2,
+                        grid_start[1] + y * 2,
+                        grid_start[2] + z * 2,
+                    )
+                )
+                densities[z, y, x] = density * 1.0
+
+
+print("Initialising grid...")
+init_grid_with_head()
+print("Done")
 
 density_texture = device.create_texture(
     type=spy.TextureType.texture_3d,
@@ -120,24 +142,13 @@ def perspective(fov_y, aspect, near, far):
 projection = perspective(np.radians(45.0), width / height, 0.1, 100.0)
 inv_projection = np.linalg.inv(projection)
 
-# Model matrix: identity (volume occupies [-1,1]^3 in world space)
-model = np.matrix(
-    [
-        [2.0, 0.0, 0.0, -1.0],
-        [0.0, 2.0, 0.0, -1.0],
-        [0.0, 0.0, 2.0, -1.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ]
-)
-inv_model = np.linalg.inv(model)
-
 # Light setup
-light_dir = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+light_dir = np.array([-0.5, 1.0, 1.0], dtype=np.float32)
 light_dir = light_dir / np.linalg.norm(light_dir)
-light_color = np.array([10.0, 10.0, 10.0], dtype=np.float32)
+light_color = np.array([30.0, 30.0, 30.0], dtype=np.float32)
 
 # Volume properties
-sigma_a = 1.0  # Absorption
+sigma_a = 0.1  # Absorption
 sigma_s = 10.0  # Scattering
 
 pt_program = device.load_program("pathtracer.slang", ["main"])
@@ -149,12 +160,13 @@ rc_kernel = device.create_compute_kernel(rc_program)
 dataset_dir = pathlib.Path("dataset")
 dataset_dir.mkdir(exist_ok=True)
 
-for j in range(45):
+for j in range(50):
+    print(f"Processing frame {j}", end="\r")
     eye = np.array(
         [
-            3.0 * math.sin(2.0 * j * math.pi / 45.0),
             0.0,
-            3.0 * math.cos(2.0 * j * math.pi / 45.0),
+            0.0,
+            4.0,
         ],
         dtype=np.float32,
     )
@@ -163,6 +175,34 @@ for j in range(45):
 
     view = look_at(eye, target, up)
     inv_view = np.linalg.inv(view)
+
+    # Model matrix: identity (volume occupies [-1,1]^3 in world space)
+    model = np.matrix(
+        [
+            [
+                math.cos(2.0 * j * math.pi / 50.0),
+                0.0,
+                -math.sin(2.0 * j * math.pi / 50.0),
+                0.0,
+            ],
+            [0.0, 1.0, 0.0, 0.0],
+            [
+                math.sin(2.0 * j * math.pi / 50.0),
+                0.0,
+                math.cos(2.0 * j * math.pi / 50.0),
+                0.0,
+            ],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    ) @ np.matrix(
+        [
+            [2.0, 0.0, 0.0, -1.0],
+            [0.0, 2.0, 0.0, -0.8],
+            [0.0, 0.0, 1.8, -1.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    inv_model = np.linalg.inv(model)
 
     for i in range(128):
         pt_kernel.dispatch(
@@ -186,14 +226,26 @@ for j in range(45):
             },
         )
 
-    img = render_texture.to_numpy()
-    img = np.clip(img[..., :3] / (1.0 + img[..., :3]), 0, 1)
+        if i == 0:
+            img = render_texture.to_numpy()
+            img = np.clip(img[..., :3] / (1.0 + img[..., :3]), 0, 1)
 
-    img_uint8 = (img * 255).astype(np.uint8)
-    Image.fromarray(img_uint8).save(dataset_dir / f"pt_{(j + offset):04d}.png")
+            img_uint8 = (img * 255).astype(np.uint8)
+            Image.fromarray(img_uint8).save(
+                dataset_dir / f"pt1s_{(j + offset):04d}.png"
+            )
 
-    for i in range(9):
-        threshold = (i + 1) / 10
+        if i == 127:
+            img = render_texture.to_numpy()
+            img = np.clip(img[..., :3] / (1.0 + img[..., :3]), 0, 1)
+
+            img_uint8 = (img * 255).astype(np.uint8)
+            Image.fromarray(img_uint8).save(
+                dataset_dir / f"pt128s_{(j + offset):04d}.png"
+            )
+
+    for i in range(4):
+        threshold = [0.1, 0.25, 0.65, 0.9][i]
 
         rc_kernel.dispatch(
             thread_count=[width, height, 1],
@@ -202,7 +254,7 @@ for j in range(45):
                 "densities": density_texture,
                 "density_sampler": density_sampler,
                 "density_grid_size": density_grid_size,
-                "frame_index": i,
+                "frame_index": 0,
                 "model": model,
                 "inv_model": inv_model,
                 "view": view,
@@ -224,3 +276,5 @@ for j in range(45):
         Image.fromarray(img_uint8).save(
             dataset_dir / f"rc{int(threshold * 10):02d}_{(j + offset):04d}.png"
         )
+
+print()

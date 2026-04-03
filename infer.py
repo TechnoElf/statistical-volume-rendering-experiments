@@ -13,7 +13,7 @@ from common import PathTracerDataset, PathTracerModel
 batch_size = 1
 width, height = 1280, 720
 
-test_set = PathTracerDataset(train=False, directory="dataset/cloud")
+test_set = PathTracerDataset(train=False, directory="dataset")
 test_loader = DataLoader(test_set, batch_size=batch_size)
 
 model = PathTracerModel()

@@ -34,7 +34,41 @@ float sampleDensity(float3 pos) {
     if (any(pos < 0.0) || any(pos > 1.0)) {
         return 0.0;
     }
+
+    float density = densities.SampleLevel(density_sampler, pos, 0);
+    if (density > 0.65) {
+        density = 10.0;
+    } else if (density > 0.25) {
+        density = 0.5;
+    } else {
+        density = 0.0;
+    }
+
+    return density;
+}
+
+float sampleDensityNoMap(float3 pos) {
+    if (any(pos < 0.0) || any(pos > 1.0)) {
+        return 0.0;
+    }
+
     return densities.SampleLevel(density_sampler, pos, 0);
+}
+
+float3 sampleAlbedo(float3 pos) {
+    if (any(pos < 0.0) || any(pos > 1.0)) {
+        return 0.0;
+    }
+
+    float density = densities.SampleLevel(density_sampler, pos, 0);
+    float3 albedo = float3(0.0);
+    if (density > 0.65) {
+        albedo = float3(1.0, 1.0, 1.0);
+    } else if (density > 0.25) {
+        albedo = float3(249.0/255.0, 183.0/255.0, 172.0/255.0);
+    }
+
+    return albedo;
 }
 
 // Transform point from world space to volume space
@@ -143,7 +177,7 @@ float3 estimateDirectLight(float3 pos, float sigma_t, float max_density) {
     }
 
     float max_dist = max(0.0, t_far);
-    float trans = transmittance(pos, local_light_dir, max_dist, sigma_t, 32);
+    float trans = transmittance(pos, local_light_dir, max_dist, sigma_t, 256);
 
-    return light_color * trans;
+    return light_color * max(trans, 0.0);
 }

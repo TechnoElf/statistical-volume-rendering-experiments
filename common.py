@@ -23,8 +23,11 @@ class PathTracerDataset(Dataset):
 
         ids = np.random.permutation(ids)
 
-        self.output = [f"pt_{id}.png" for id in ids]
-        self.inputs = [[f"rc{i:02d}_{id}.png" for i in range(1, 10, 2)] for id in ids]
+        self.output = [f"pt128s_{id}.png" for id in ids]
+        self.inputs = [
+            [f"pt1s_{id}.png"] + [f"rc{i:02d}_{id}.png" for i in [1, 2, 6, 9]]
+            for id in ids
+        ]
 
     def __len__(self):
         return len(self.output)
@@ -46,21 +49,27 @@ class PathTracerDataset(Dataset):
             in_img = torch.from_numpy(in_img).permute(2, 0, 1)
             in_imgs.append(in_img)
 
+        # x_pos_img = torch.from_numpy(
+        #     np.tile(
+        #         np.linspace(0, 1, in_imgs[0].shape[2]).astype(np.float32)
+        #         / in_imgs[0].shape[2],
+        #         [in_imgs[0].shape[1], 1],
+        #     )
+        # )
         x_pos_img = torch.from_numpy(
-            np.tile(
-                np.linspace(0, 1, in_imgs[0].shape[2]).astype(np.float32)
-                / in_imgs[0].shape[2],
-                [in_imgs[0].shape[1], 1],
-            )
+            np.ones((in_imgs[0].shape[1], in_imgs[0].shape[2]), dtype=np.float32)
         )
 
+        # y_pos_img = torch.from_numpy(
+        #     np.tile(
+        #         np.linspace(0, 1, in_imgs[0].shape[1]).astype(np.float32)
+        #         / in_imgs[0].shape[1],
+        #         [in_imgs[0].shape[2], 1],
+        #     )
+        # ).T
         y_pos_img = torch.from_numpy(
-            np.tile(
-                np.linspace(0, 1, in_imgs[0].shape[1]).astype(np.float32)
-                / in_imgs[0].shape[1],
-                [in_imgs[0].shape[2], 1],
-            )
-        ).T
+            np.ones((in_imgs[0].shape[1], in_imgs[0].shape[2]), dtype=np.float32)
+        )
 
         in_imgs.append(torch.stack((x_pos_img, y_pos_img)))
 
@@ -135,9 +144,9 @@ class PathTracerModel(nn.Module):
         super().__init__()
         self.inc = DoubleConv(22, 32)
         self.down1 = Down(32, 64)
-        self.down2 = Down(64, 64)
-        self.down3 = Down(64, 64)
-        self.down4 = Down(64, 64)
+        self.down2 = Down(64, 128)
+        self.down3 = Down(128, 256)
+        self.down4 = Down(256, 512)
         # self.bottleneck = nn.Sequential(
         #    nn.Flatten(),
         #    nn.Linear(64 * 80 * 45, 256),
@@ -146,9 +155,9 @@ class PathTracerModel(nn.Module):
         #    nn.ReLU(inplace=True),
         #    nn.Unflatten(1, (64, 80, 45)),
         # )
-        self.up1 = Up(64, 64)
-        self.up2 = Up(64, 64)
-        self.up3 = Up(64, 64)
+        self.up1 = Up(512, 256)
+        self.up2 = Up(256, 128)
+        self.up3 = Up(128, 64)
         self.up4 = Up(64, 32)
         self.outc = OutConv(32, 3)
 

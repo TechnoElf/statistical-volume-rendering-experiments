@@ -125,7 +125,7 @@ inv_projection = np.linalg.inv(projection)
 model = np.matrix(
     [
         [2.0, 0.0, 0.0, -1.0],
-        [0.0, 2.0, 0.0, -1.0],
+        [0.0, 2.0, 0.0, -0.5],
         [0.0, 0.0, 2.0, -1.0],
         [0.0, 0.0, 0.0, 1.0],
     ]
@@ -156,9 +156,9 @@ try:
     for j in range(360):
         eye = np.array(
             [
-                3.0 * math.sin(2.0 * j * math.pi / 180.0),
+                4.0 * math.sin(2.0 * j * math.pi / 180.0),
                 0.0,
-                3.0 * math.cos(2.0 * j * math.pi / 180.0),
+                4.0 * math.cos(2.0 * j * math.pi / 180.0),
             ],
             dtype=np.float32,
         )
