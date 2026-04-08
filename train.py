@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from common import PathTracerDataset, PathTracerModel
 
-epochs = 8
+epochs = 256
 batch_size = 1
 width, height = 1280, 720
 
@@ -34,6 +34,9 @@ model.to(device)
 
 loss_fn = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, patience=4, factor=0.1
+)
 
 for epoch in range(epochs):
     model.train()
@@ -58,8 +61,14 @@ for epoch in range(epochs):
             loss = loss_fn(out, y.to(device))
             test_loss += loss.item()
 
+    test_loss /= len(test_loader)
+
+    scheduler.step(test_loss)
+
     print("                                                             ", end="\r")
-    print(f"Epoch {epoch + 1}/{epochs}:\n  Loss={test_loss / len(test_loader):.6f}")
+    print(
+        f"Epoch {epoch + 1}/{epochs}:\n  Loss={test_loss:.6f}\n  lr={scheduler._last_lr[0]:.6f}"
+    )
 
     img = out.cpu()[0].permute(1, 2, 0).detach().numpy()
     Image.fromarray((img * 255).astype(np.uint8)).save("latest_out.png")

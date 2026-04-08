@@ -2,7 +2,7 @@
   description = "Statistical Volume Rendering Experiments";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     nixgl.url = "github:nix-community/nixGL";
   };
@@ -107,6 +107,7 @@
 
           propagatedBuildInputs = with python.pkgs; [
             numpy
+            typing-extensions
           ];
 
           dontStrip = true;
@@ -154,6 +155,10 @@
             pkg-config
             v3
             nixglPinned.nixVulkanNvidia
+            renderdoc
+            cudatoolkit
+            cudaPackages.nsight_compute
+            cudaPackages.nsight_systems
           ];
 
           shellHook = ''

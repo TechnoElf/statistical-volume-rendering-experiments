@@ -1,6 +1,7 @@
 #include "common.slang"
 
 RWTexture2D<float4> render_texture;
+RWTexture1D<uint> profile;
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
@@ -8,6 +9,10 @@ void main(uint3 tid: SV_DispatchThreadID) {
     uint2 dim;
     render_texture.GetDimensions(dim.x, dim.y);
     if (any(tid.xy >= dim)) { return; }
+
+    if (all(tid.xy == uint2(640, 360))) {
+        profile[0] = getRealtimeClockLow();
+    }
 
     // Initialize RNG with pixel position and frame index
     uint rng = tid.x + tid.y * dim.x + frame_index * dim.x * dim.y;
@@ -41,7 +46,14 @@ void main(uint3 tid: SV_DispatchThreadID) {
     float t_near, t_far;
     float3 color = float3(0.1, 0.1, 0.1); // Background color
 
+    if (all(tid.xy == uint2(640, 360))) {
+        profile[1] = getRealtimeClockLow();
+    }
+
     if (intersectBox(local_origin, local_dir, t_near, t_far)) {
+        if (all(tid.xy == uint2(640, 360))) {
+            profile[2] = getRealtimeClockLow();
+        }
         t_near = max(t_near, 0.0);
 
         float sigma_t = sigma_a + sigma_s;
@@ -56,8 +68,15 @@ void main(uint3 tid: SV_DispatchThreadID) {
         float depth_transmittance = transmittance(pos, dir, remaining_dist, sigma_t, 256);
         color *= depth_transmittance;
 
+        if (all(tid.xy == uint2(640, 360))) {
+            profile[3] = getRealtimeClockLow();
+        }
+
         const int MAX_BOUNCES = 8;
         for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
+            if (all(tid.xy == uint2(640, 360))) {
+                profile[4 + bounce] = getRealtimeClockLow();
+            }
             float t;
             float3 scatter_pos;
 
@@ -99,6 +118,10 @@ void main(uint3 tid: SV_DispatchThreadID) {
         }
     }
 
+    if (all(tid.xy == uint2(640, 360))) {
+        profile[4 + 8 + 0] = getRealtimeClockLow();
+    }
+
     // Progressive accumulation
     if (frame_index != 0) {
         float4 prev_color = render_texture[tid.xy];
@@ -107,5 +130,9 @@ void main(uint3 tid: SV_DispatchThreadID) {
         render_texture[tid.xy] = float4(accumulated, 1.0);
     } else {
         render_texture[tid.xy] = float4(color, 1.0);
+    }
+
+    if (all(tid.xy == uint2(640, 360))) {
+        profile[4 + 8 + 1] = getRealtimeClockLow();
     }
 }

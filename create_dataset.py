@@ -1,3 +1,4 @@
+import ctypes
 import math
 import os
 import pathlib
@@ -9,15 +10,43 @@ import openvdb as vdb
 import slangpy as spy
 from PIL import Image
 
+RENDERDOC_LIB = (
+    "/nix/store/49v1gkmbkyj0k2kzl8a3hp094lq0kqwj-renderdoc-1.42/lib/librenderdoc.so"
+)
+
 offset = 0
 
 opensimplex.seed(2)
+
+# rdoc_lib = ctypes.CDLL(RENDERDOC_LIB)
+
+# rdoc_lib.RENDERDOC_GetAPI.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_void_p)]
+# rdoc_lib.RENDERDOC_GetAPI.restype = ctypes.c_int
+
+# api_ptr = ctypes.c_void_p()
+# ret = rdoc_lib.RENDERDOC_GetAPI(10600, ctypes.byref(api_ptr))
+# print(f"RENDERDOC_GetAPI returned: {ret}")
+
+# FUNCTYPE = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
+
+# api_table = ctypes.cast(api_ptr, ctypes.POINTER(ctypes.c_void_p))
+
+# SET_PATH = ctypes.CFUNCTYPE(None, ctypes.c_char_p)
+# set_path = SET_PATH(api_table[11])
+# set_path(b"capture")
+
+# start_capture = FUNCTYPE(api_table[19])
+
+# end_capture = FUNCTYPE(api_table[21])
+
+# print("RenderDoc API loaded successfully")
 
 device = spy.create_device(
     type=spy.DeviceType.vulkan,
     include_paths=[
         pathlib.Path(".").absolute(),
     ],
+    enable_debug_layers=True,
 )
 
 # Image dimensions
@@ -111,6 +140,14 @@ density_sampler = device.create_sampler(
     address_w=spy.TextureAddressingMode.clamp_to_edge,
 )
 
+profile = device.create_texture(
+    type=spy.TextureType.texture_1d,
+    format=spy.Format.r32_uint,
+    width=64,
+    usage=spy.TextureUsage.unordered_access,
+    label="profile",
+)
+
 
 # Camera setup
 def look_at(eye, target, up):
@@ -160,8 +197,8 @@ rc_kernel = device.create_compute_kernel(rc_program)
 dataset_dir = pathlib.Path("dataset")
 dataset_dir.mkdir(exist_ok=True)
 
-for j in range(50):
-    print(f"Processing frame {j}", end="\r")
+for j in range(1):
+    print(f"Processing frame {j}")
     eye = np.array(
         [
             0.0,
@@ -211,6 +248,7 @@ for j in range(50):
                 "render_texture": render_texture,
                 "densities": density_texture,
                 "density_sampler": density_sampler,
+                "profile": profile,
                 "density_grid_size": density_grid_size,
                 "frame_index": i,
                 "model": model,
@@ -225,6 +263,9 @@ for j in range(50):
                 "sigma_s": sigma_s,
             },
         )
+
+        if i == 0:
+            print(profile.to_numpy())
 
         if i == 0:
             img = render_texture.to_numpy()
@@ -253,6 +294,7 @@ for j in range(50):
                 "render_texture": render_texture,
                 "densities": density_texture,
                 "density_sampler": density_sampler,
+                "profile": profile,
                 "density_grid_size": density_grid_size,
                 "frame_index": 0,
                 "model": model,
