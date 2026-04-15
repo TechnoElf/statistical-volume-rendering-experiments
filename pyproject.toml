@@ -1,0 +1,10 @@
+[project]
+name = "volff"
+version = "0.1.0"
+description = "Statistical rendering experiments"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+volff = "volff.cli.main:main"

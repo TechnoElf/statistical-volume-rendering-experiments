@@ -120,6 +120,7 @@
           opensimplex
           pyopenvdb
           torch-bin
+          typer
         ]);
 
         v3 = pkgs.stdenv.mkDerivation rec {
