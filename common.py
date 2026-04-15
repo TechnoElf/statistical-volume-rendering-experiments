@@ -10,7 +10,9 @@ from torch.utils.data import DataLoader, Dataset
 
 
 class PathTracerDataset(Dataset):
-    def __init__(self, train=False, directory="dataset"):
+    def __init__(
+        self, pathtracer_samples=1, train=False, directory="dataset", random=True
+    ):
         self.directory = directory
         files = sorted(os.listdir(directory))
         ids = [file.split(".")[0] for file in files if file.endswith(".png")]
@@ -21,11 +23,13 @@ class PathTracerDataset(Dataset):
         else:
             ids = ids[: len(ids) // 4]
 
-        ids = np.random.permutation(ids)
+        if random:
+            ids = np.random.permutation(ids)
 
         self.output = [f"pt128s_{id}.png" for id in ids]
         self.inputs = [
-            [f"pt1s_{id}.png"] + [f"rc{i:02d}_{id}.png" for i in [1, 2, 6, 9]]
+            [f"pt{pathtracer_samples}s_{id}.png"]
+            + [f"rc{i:02d}_{id}.png" for i in [1, 2, 6, 9]]
             for id in ids
         ]
 

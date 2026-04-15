@@ -197,7 +197,7 @@ rc_kernel = device.create_compute_kernel(rc_program)
 dataset_dir = pathlib.Path("dataset")
 dataset_dir.mkdir(exist_ok=True)
 
-for j in range(1):
+for j in range(50):
     print(f"Processing frame {j}")
     eye = np.array(
         [
@@ -267,22 +267,13 @@ for j in range(1):
         if i == 0:
             print(profile.to_numpy())
 
-        if i == 0:
+        if i < 3 or i == 127:
             img = render_texture.to_numpy()
             img = np.clip(img[..., :3] / (1.0 + img[..., :3]), 0, 1)
 
             img_uint8 = (img * 255).astype(np.uint8)
             Image.fromarray(img_uint8).save(
-                dataset_dir / f"pt1s_{(j + offset):04d}.png"
-            )
-
-        if i == 127:
-            img = render_texture.to_numpy()
-            img = np.clip(img[..., :3] / (1.0 + img[..., :3]), 0, 1)
-
-            img_uint8 = (img * 255).astype(np.uint8)
-            Image.fromarray(img_uint8).save(
-                dataset_dir / f"pt128s_{(j + offset):04d}.png"
+                dataset_dir / f"pt{i + 1}s_{(j + offset):04d}.png"
             )
 
     for i in range(4):
