@@ -7,6 +7,28 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
+def create_sample(index, validation, dir, volume, yaw, tracer):
+    name = f"v{index:07d}" if validation else f"{index:08d}"
+
+    img_ref = tracer.trace(volume, 256, yaw=yaw)
+    img_pt = tracer.trace(volume, 1, yaw=yaw)
+
+    img_iso_1 = tracer.isosurface(volume, 0.10, yaw=yaw)
+    img_iso_2 = tracer.isosurface(volume, 0.25, yaw=yaw)
+    img_iso_6 = tracer.isosurface(volume, 0.65, yaw=yaw)
+    img_iso_9 = tracer.isosurface(volume, 0.90, yaw=yaw)
+
+    for path, data in [
+        (f"{name}_in0.png", img_pt),
+        (f"{name}_in1.png", img_iso_1),
+        (f"{name}_in2.png", img_iso_2),
+        (f"{name}_in3.png", img_iso_6),
+        (f"{name}_in4.png", img_iso_9),
+        (f"{name}_out.png", img_ref),
+    ]:
+        Image.fromarray((data * 255).astype(np.uint8)).save(dir / path)
+
+
 class PathTracerDataset(Dataset):
     def __init__(self, directory, train=False, random=True):
         self.directory = directory

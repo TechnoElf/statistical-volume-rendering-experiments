@@ -121,7 +121,7 @@ def setup_transforms(width, height, pitch, yaw, roll):
                 [0.0, 0.0, 1.8, -1.0],
                 [0.0, 0.0, 0.0, 1.0],
             ]
-        ),
+        )
     )
     inv_model = np.linalg.inv(model)
 
