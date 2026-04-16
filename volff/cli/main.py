@@ -96,6 +96,10 @@ def infer(ctx: typer.Context):
         img_iso_2 = tracer.isosurface(volume, 0.25, yaw=math.pi / 2.0)
         img_iso_6 = tracer.isosurface(volume, 0.65, yaw=math.pi / 2.0)
         img_iso_9 = tracer.isosurface(volume, 0.90, yaw=math.pi / 2.0)
+        # img_iso_1 = np.zeros((720, 1280, 4), dtype=np.float32)
+        # img_iso_2 = np.zeros((720, 1280, 4), dtype=np.float32)
+        # img_iso_6 = np.zeros((720, 1280, 4), dtype=np.float32)
+        # img_iso_9 = np.zeros((720, 1280, 4), dtype=np.float32)
 
         print("[VLF] Inferring...")
         in_imgs = []

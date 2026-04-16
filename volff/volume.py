@@ -25,4 +25,6 @@ def load_vdb(path: Path):
                 )
                 volume[x, y, z] = density
 
+    volume = volume / np.max(volume)
+
     return volume
