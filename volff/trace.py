@@ -56,7 +56,7 @@ class Tracer:
             kernel_path = stack.enter_context(resources.path(volff, "kernels"))
             yield cls(kernel_path, width, height)
 
-    def trace(self, volume, iterations=128, yaw=0.0):
+    def trace(self, volume, iterations=128, pitch=0.0, yaw=0.0, roll=0.0):
         density_texture = self.device.create_texture(
             type=spy.TextureType.texture_3d,
             format=spy.Format.r32_float,
@@ -76,7 +76,7 @@ class Tracer:
         sigma_s = 10.0
 
         model, inv_model, view, inv_view, projection, inv_projection = setup_transforms(
-            self.width, self.height, yaw
+            self.width, self.height, pitch, yaw, roll
         )
 
         for i in range(iterations):
@@ -108,7 +108,7 @@ class Tracer:
 
         return img
 
-    def isosurface(self, volume, threshold, yaw=0.0):
+    def isosurface(self, volume, threshold, pitch=0.0, yaw=0.0, roll=0.0):
         density_texture = self.device.create_texture(
             type=spy.TextureType.texture_3d,
             format=spy.Format.r32_float,
@@ -128,7 +128,7 @@ class Tracer:
         sigma_s = 10.0
 
         model, inv_model, view, inv_view, projection, inv_projection = setup_transforms(
-            self.width, self.height, yaw
+            self.width, self.height, pitch, yaw, roll
         )
 
         self.rc_kernel.dispatch(
