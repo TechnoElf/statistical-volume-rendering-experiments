@@ -15,7 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from volff.constants import asset_sources
-from volff.dataset import PathTracerDataset, create_sample
+from volff.dataset import PathTracerDataset, create_sample, random_sample
 from volff.model import PathTracerModel
 from volff.trace import Tracer
 from volff.volume import load_vdb
@@ -155,19 +155,15 @@ def prepare(
 
             for j in range(samples):
                 index = samples * i + j
-                yaw = random.uniform(0, 2 * math.pi)
-                print(
-                    f"[VLF] Sample {index + 1}/{samples * len(assets)} (yaw={yaw:.2f})..."
-                )
-                create_sample(index, False, dataset_dir, volume, yaw, tracer)
+                print(f"[VLF] Sample {index + 1}/{samples * len(assets)}...")
+                random_sample(index, False, dataset_dir, volume, tracer)
 
             for j in range(validation_samples):
                 index = validation_samples * i + j
-                yaw = random.uniform(0, 2 * math.pi)
                 print(
-                    f"[VLF] Validation {index + 1}/{validation_samples * len(assets)} (yaw={yaw:.2f})..."
+                    f"[VLF] Validation {index + 1}/{validation_samples * len(assets)}..."
                 )
-                create_sample(index, True, dataset_dir, volume, yaw, tracer)
+                random_sample(index, True, dataset_dir, volume, tracer)
 
     print("[VLF] Done.")
 
@@ -186,6 +182,7 @@ def train(
 
     model = PathTracerModel()
     if os.path.exists(config.working_dir / "model.pth"):
+        print(f"[VLF] Loading existing model")
         model.load_state_dict(torch.load(config.working_dir / "model.pth"))
 
     model.to(device)
@@ -232,6 +229,8 @@ def train(
                 val_loss += loss.item()
 
         val_loss /= len(val_loader)
+
+        scheduler.step(val_loss)
 
         print(
             f"[VLF] Epoch {epoch + 1}/{epochs} - "
