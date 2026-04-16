@@ -29,7 +29,70 @@ def perspective(fov_y, aspect, near, far):
     return proj
 
 
-def setup_transforms(width, height):
+def rot_x_matrix(theta):
+    return np.matrix(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [
+                0.0,
+                math.cos(theta),
+                -math.sin(theta),
+                0.0,
+            ],
+            [
+                0.0,
+                math.sin(theta),
+                math.cos(theta),
+                0.0,
+            ],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+
+
+def rot_y_matrix(theta):
+    return np.matrix(
+        [
+            [
+                math.cos(theta),
+                0.0,
+                -math.sin(theta),
+                0.0,
+            ],
+            [0.0, 1.0, 0.0, 0.0],
+            [
+                math.sin(theta),
+                0.0,
+                math.cos(theta),
+                0.0,
+            ],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+
+
+def rot_z_matrix(theta):
+    return np.matrix(
+        [
+            [
+                math.cos(theta),
+                -math.sin(theta),
+                0.0,
+                0.0,
+            ],
+            [
+                math.sin(theta),
+                math.cos(theta),
+                0.0,
+                0.0,
+            ],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+
+
+def setup_transforms(width, height, yaw):
     projection = perspective(np.radians(45.0), width / height, 0.1, 100.0)
     inv_projection = np.linalg.inv(projection)
 
@@ -47,26 +110,7 @@ def setup_transforms(width, height):
     view = look_at(eye, target, up)
     inv_view = np.linalg.inv(view)
 
-    j = 0.0
-
-    model = np.matrix(
-        [
-            [
-                math.cos(2.0 * j * math.pi / 50.0),
-                0.0,
-                -math.sin(2.0 * j * math.pi / 50.0),
-                0.0,
-            ],
-            [0.0, 1.0, 0.0, 0.0],
-            [
-                math.sin(2.0 * j * math.pi / 50.0),
-                0.0,
-                math.cos(2.0 * j * math.pi / 50.0),
-                0.0,
-            ],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
-    ) @ np.matrix(
+    model = rot_y_matrix(yaw) @ np.matrix(
         [
             [2.0, 0.0, 0.0, -1.0],
             [0.0, 2.0, 0.0, -0.8],

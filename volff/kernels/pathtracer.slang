@@ -65,7 +65,7 @@ void main(uint3 tid: SV_DispatchThreadID) {
         float3 dir = local_dir;
         float remaining_dist = t_far - t_near;
 
-        float depth_transmittance = transmittance(pos, dir, remaining_dist, sigma_t, 256);
+        float depth_transmittance = transmittance(pos, dir, remaining_dist, sigma_t, 512);
         color *= depth_transmittance;
 
         if (all(tid.xy == uint2(640, 360))) {

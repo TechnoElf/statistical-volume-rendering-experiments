@@ -43,8 +43,11 @@ class Tracer:
             address_w=spy.TextureAddressingMode.clamp_to_edge,
         )
 
-        self.program = self.device.load_program("pathtracer.slang", ["main"])
-        self.kernel = self.device.create_compute_kernel(self.program)
+        self.pt_program = self.device.load_program("pathtracer.slang", ["main"])
+        self.pt_kernel = self.device.create_compute_kernel(self.pt_program)
+
+        self.rc_program = self.device.load_program("raycaster.slang", ["main"])
+        self.rc_kernel = self.device.create_compute_kernel(self.rc_program)
 
     @classmethod
     @contextmanager
@@ -53,7 +56,7 @@ class Tracer:
             kernel_path = stack.enter_context(resources.path(volff, "kernels"))
             yield cls(kernel_path, width, height)
 
-    def trace(self, volume, iterations):
+    def trace(self, volume, iterations=128, yaw=0.0):
         density_texture = self.device.create_texture(
             type=spy.TextureType.texture_3d,
             format=spy.Format.r32_float,
@@ -73,11 +76,11 @@ class Tracer:
         sigma_s = 10.0
 
         model, inv_model, view, inv_view, projection, inv_projection = setup_transforms(
-            self.width, self.height
+            self.width, self.height, yaw
         )
 
         for i in range(iterations):
-            self.kernel.dispatch(
+            self.pt_kernel.dispatch(
                 thread_count=[self.width, self.height, 1],
                 vars={
                     "render_texture": self.render_texture,
@@ -100,5 +103,58 @@ class Tracer:
 
         img = self.render_texture.to_numpy()
         img = np.clip(img[..., :3] / (1.0 + img[..., :3]), 0, 1)
+        img = np.dstack((img, np.ones((self.height, self.width), dtype=np.float32)))
+        img[np.isnan(img)] = 0
+
+        return img
+
+    def isosurface(self, volume, threshold, yaw=0.0):
+        density_texture = self.device.create_texture(
+            type=spy.TextureType.texture_3d,
+            format=spy.Format.r32_float,
+            width=volume.shape[2],
+            height=volume.shape[1],
+            depth=volume.shape[0],
+            usage=spy.TextureUsage.shader_resource,
+            label="densities",
+        )
+        density_texture.copy_from_numpy(volume)
+
+        light_dir = np.array([-0.5, 1.0, 1.0], dtype=np.float32)
+        light_dir = light_dir / np.linalg.norm(light_dir)
+        light_color = np.array([30.0, 30.0, 30.0], dtype=np.float32)
+
+        sigma_a = 0.1
+        sigma_s = 10.0
+
+        model, inv_model, view, inv_view, projection, inv_projection = setup_transforms(
+            self.width, self.height, yaw
+        )
+
+        self.rc_kernel.dispatch(
+            thread_count=[self.width, self.height, 1],
+            vars={
+                "render_texture": self.render_texture,
+                "densities": density_texture,
+                "density_sampler": self.density_sampler,
+                "profile": self.profile,
+                "frame_index": 0,
+                "model": model,
+                "inv_model": inv_model,
+                "view": view,
+                "inv_view": inv_view,
+                "projection": projection,
+                "inv_projection": inv_projection,
+                "light_dir": light_dir,
+                "light_color": light_color,
+                "sigma_a": sigma_a,
+                "sigma_s": sigma_s,
+                "threshold": threshold,
+            },
+        )
+
+        img = self.render_texture.to_numpy()
+        img = np.clip(img[..., :4], 0, 1)
+        img[np.isnan(img)] = 0
 
         return img

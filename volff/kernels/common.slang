@@ -176,7 +176,7 @@ float3 estimateDirectLight(float3 pos, float sigma_t, float max_density) {
     }
 
     float max_dist = max(0.0, t_far);
-    float trans = transmittance(pos, local_light_dir, max_dist, sigma_t, 256);
+    float trans = transmittance(pos, local_light_dir, max_dist, sigma_t, 512);
 
     return light_color * max(trans, 0.0);
 }

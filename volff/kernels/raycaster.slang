@@ -49,19 +49,19 @@ void main(uint3 tid: SV_DispatchThreadID) {
         float3 dir = local_dir;
         float remaining_dist = t_far - t_near;
 
-        float step_size = remaining_dist / 256.0;
+        float step_size = remaining_dist / 512.0;
 
-        for (int i = 0; i < 256; i++) {
+        for (int i = 0; i < 512; i++) {
             float t = (float(i) + 0.5) * step_size;
             float3 step_pos = pos + dir * t;
             float density = sampleDensityNoMap(step_pos);
 
             if (density > threshold) {
-                float depth = clamp((255.5 * step_size) - t, 0, 1);
+                float depth = clamp((511.5 * step_size) - t, 0, 1);
                 float3 gradient = float3(
-                    density - sampleDensityNoMap(step_pos - float3(1.0 / 256.0, 0, 0)),
-                    density - sampleDensityNoMap(step_pos - float3(0, 1.0 / 256.0, 0)),
-                    density - sampleDensityNoMap(step_pos - float3(0, 0, 1.0 / 256.0))
+                    density - sampleDensityNoMap(step_pos - float3(1.0 / 512.0, 0, 0)),
+                    density - sampleDensityNoMap(step_pos - float3(0, 1.0 / 512.0, 0)),
+                    density - sampleDensityNoMap(step_pos - float3(0, 0, 1.0 / 512.0))
                 );
                 float3 normal = (-normalize(gradient) + float3(1)) / 2.0;
                 color = float4(normal, depth);
