@@ -15,7 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from volff.constants import asset_sources
-from volff.dataset import PathTracerDataset, create_sample, random_sample
+from volff.dataset import PathTracerDataset, random_sample
 from volff.model import PathTracerModel
 from volff.trace import Tracer
 from volff.volume import load_vdb
