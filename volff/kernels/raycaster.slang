@@ -59,9 +59,9 @@ void main(uint3 tid: SV_DispatchThreadID) {
             if (density > threshold) {
                 float depth = clamp((511.5 * step_size) - t, 0, 1);
                 float3 gradient = float3(
-                    density - sampleDensityNoMap(step_pos - float3(1.0 / 512.0, 0, 0)),
-                    density - sampleDensityNoMap(step_pos - float3(0, 1.0 / 512.0, 0)),
-                    density - sampleDensityNoMap(step_pos - float3(0, 0, 1.0 / 512.0))
+                    density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(1.0 / 512.0, 0, 0))),
+                    density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(0, 1.0 / 512.0, 0))),
+                    density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(0, 0, 1.0 / 512.0)))
                 );
                 float3 normal = (-normalize(gradient) + float3(1)) / 2.0;
                 color = float4(normal, depth);
