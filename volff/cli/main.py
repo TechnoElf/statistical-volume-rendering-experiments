@@ -150,8 +150,8 @@ def infer(ctx: typer.Context):
 @cli.command()
 def prepare(
     ctx: typer.Context,
-    samples: Annotated[int, typer.Option("--samples", "-s")] = 16,
-    validation_samples: Annotated[int, typer.Option("--validation", "-l")] = 8,
+    samples: Annotated[int, typer.Option("--samples", "-s")] = 24,
+    validation_samples: Annotated[int, typer.Option("--validation", "-l")] = 12,
 ):
     config = ctx.obj
     assets_dir = config.working_dir / "assets"
@@ -173,17 +173,17 @@ def prepare(
             print(f"[VLF] Loading volume {i + 1}/{len(assets)}...")
             volume = load_vdb(asset)
 
-            for j in range(samples):
-                index = samples * i + j
+            for j in range(int(samples / 4)):
+                index = samples * i + j * 4
                 print(f"[VLF] Sample {index + 1}/{samples * len(assets)}...")
-                random_sample(index, False, dataset_dir, volume, tracer)
+                random_sample(index, False, dataset_dir, volume, tracer, 4)
 
-            for j in range(validation_samples):
-                index = validation_samples * i + j
+            for j in range(int(validation_samples / 4)):
+                index = validation_samples * i + j * 4
                 print(
                     f"[VLF] Validation {index + 1}/{validation_samples * len(assets)}..."
                 )
-                random_sample(index, True, dataset_dir, volume, tracer)
+                random_sample(index, True, dataset_dir, volume, tracer, 4)
 
     print("[VLF] Done.")
 

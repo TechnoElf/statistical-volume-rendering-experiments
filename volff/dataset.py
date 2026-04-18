@@ -13,13 +13,13 @@ HALF_TILE_SIZE = int(TILE_SIZE / 2)
 QUARTER_TILE_SIZE = int(HALF_TILE_SIZE / 2)
 
 
-def random_sample(index, validation, dir, volume, tracer):
+def random_sample(index, validation, dir, volume, tracer, count):
     pitch = random.uniform(-math.pi / 2, math.pi / 2)
     yaw = random.uniform(0, 2 * math.pi)
     roll = random.uniform(0, 2 * math.pi)
     spp = random.randrange(1, 5)
-    tile_start_x = random.randrange(1280 - 512)
-    tile_start_y = random.randrange(720 - 512)
+    tile_start_x = [random.randrange(1280 - 512) for _ in range(count)]
+    tile_start_y = [random.randrange(720 - 512) for _ in range(count)]
 
     create_sample(
         index,
@@ -49,8 +49,6 @@ def create_sample(
     tile_start_x,
     tile_start_y,
 ):
-    name = f"v{index:07d}" if validation else f"{index:08d}"
-
     img_ref = tracer.trace(volume, 256, pitch=pitch, yaw=yaw, roll=roll)
     img_pt = tracer.trace(volume, spp, pitch=pitch, yaw=yaw, roll=roll)
 
@@ -59,23 +57,26 @@ def create_sample(
     img_iso_6 = tracer.isosurface(volume, 0.65, pitch=pitch, yaw=yaw, roll=roll)
     img_iso_9 = tracer.isosurface(volume, 0.90, pitch=pitch, yaw=yaw, roll=roll)
 
-    img_ref, img_pt, img_iso_1, img_iso_2, img_iso_6, img_iso_9 = (
-        img[
-            tile_start_y : tile_start_y + TILE_SIZE,
-            tile_start_x : tile_start_x + TILE_SIZE,
-        ]
-        for img in (img_ref, img_pt, img_iso_1, img_iso_2, img_iso_6, img_iso_9)
-    )
+    for i, (tile_start_x, tile_start_y) in enumerate(zip(tile_start_x, tile_start_y)):
+        name = f"v{(index + i):07d}" if validation else f"{(index + i):08d}"
 
-    for path, data in [
-        (f"{name}_in0.png", img_pt),
-        (f"{name}_in1.png", img_iso_1),
-        (f"{name}_in2.png", img_iso_2),
-        (f"{name}_in3.png", img_iso_6),
-        (f"{name}_in4.png", img_iso_9),
-        (f"{name}_out.png", img_ref),
-    ]:
-        Image.fromarray((data * 255).astype(np.uint8)).save(dir / path)
+        tile_ref, tile_pt, tile_iso_1, tile_iso_2, tile_iso_6, tile_iso_9 = (
+            img[
+                tile_start_y : tile_start_y + TILE_SIZE,
+                tile_start_x : tile_start_x + TILE_SIZE,
+            ]
+            for img in (img_ref, img_pt, img_iso_1, img_iso_2, img_iso_6, img_iso_9)
+        )
+
+        for path, data in [
+            (f"{name}_in0.png", tile_pt),
+            (f"{name}_in1.png", tile_iso_1),
+            (f"{name}_in2.png", tile_iso_2),
+            (f"{name}_in3.png", tile_iso_6),
+            (f"{name}_in4.png", tile_iso_9),
+            (f"{name}_out.png", tile_ref),
+        ]:
+            Image.fromarray((data * 255).astype(np.uint8)).save(dir / path)
 
 
 def tile_image(img):
