@@ -203,7 +203,10 @@ def train(
     model = PathTracerModel()
     if os.path.exists(config.working_dir / "model.pth"):
         print(f"[VLF] Loading existing model")
-        model.load_state_dict(torch.load(config.working_dir / "model.pth"))
+        s = torch.load(config.working_dir / "model.pth")
+        model.load_state_dict(s)
+    else:
+        print(f"[VLF] Initializing new model")
 
     model.to(device)
 
@@ -225,8 +228,8 @@ def train(
         train_loss = 0.0
 
         for inputs, targets in train_loader:
-            inputs = inputs.to(device)
-            targets = targets.to(device)
+            inputs = inputs.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
 
             optimizer.zero_grad()
             outputs = model(inputs)
@@ -242,8 +245,8 @@ def train(
         val_loss = 0.0
         with torch.no_grad():
             for inputs, targets in val_loader:
-                inputs = inputs.to(device)
-                targets = targets.to(device)
+                inputs = inputs.to(device, non_blocking=True)
+                targets = targets.to(device, non_blocking=True)
                 outputs = model(inputs)
                 loss = loss_fn(outputs, targets)
                 val_loss += loss.item()

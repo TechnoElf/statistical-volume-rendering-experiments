@@ -8,10 +8,10 @@ class DoubleConv(nn.Module):
         self.double_conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(inplace=True),
         )
 
     def forward(self, x):
@@ -68,6 +68,20 @@ class PathTracerModel(nn.Module):
         self.up3 = Up(256, 128)
         self.up4 = Up(128, 64)
         self.outc = OutConv(64, 3)
+        self.gamma = nn.Parameter(torch.tensor(2.2))
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):
+                nn.init.kaiming_normal_(
+                    m.weight, mode="fan_out", nonlinearity="leaky_relu"
+                )
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
 
     def forward(self, x):
         x1 = self.inc(x)  # 512 x 512 x 64
@@ -80,7 +94,7 @@ class PathTracerModel(nn.Module):
         x9 = self.up3(x8, x2)
         x10 = self.up4(x9, x1)
         out = self.outc(x10)
-        tone_mapped_out = torch.sigmoid(out)
+        tone_mapped_out = torch.sigmoid(out).pow(self.gamma)
         mask = (x[:, 7, :, :] == 0).unsqueeze(1).expand_as(tone_mapped_out)
         masked_out = torch.where(
             mask,
