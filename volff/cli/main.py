@@ -15,7 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from volff.constants import asset_sources
-from volff.dataset import PathTracerDataset, random_sample
+from volff.dataset import PathTracerDataset, random_sample, tile_image, untile_image
 from volff.model import PathTracerModel
 from volff.trace import Tracer
 from volff.volume import load_vdb
@@ -89,31 +89,43 @@ def infer(ctx: typer.Context):
         volume = load_vdb(assets_dir / "MRI-Head.vdb")
 
         print("[VLF] Pathtracing...")
-        img_pt = tracer.trace(volume, 1, yaw=math.pi / 2.0)
+        img_pt = tracer.trace(volume, 4, yaw=math.pi / 2.0)
 
         print("[VLF] Raycasting...")
         img_iso_1 = tracer.isosurface(volume, 0.10, yaw=math.pi / 2.0)
         img_iso_2 = tracer.isosurface(volume, 0.25, yaw=math.pi / 2.0)
         img_iso_6 = tracer.isosurface(volume, 0.65, yaw=math.pi / 2.0)
         img_iso_9 = tracer.isosurface(volume, 0.90, yaw=math.pi / 2.0)
-        # img_iso_1 = np.zeros((720, 1280, 4), dtype=np.float32)
-        # img_iso_2 = np.zeros((720, 1280, 4), dtype=np.float32)
-        # img_iso_6 = np.zeros((720, 1280, 4), dtype=np.float32)
-        # img_iso_9 = np.zeros((720, 1280, 4), dtype=np.float32)
+
+        print("[VLF] Tiling...")
+        in_tiles = list(
+            zip(
+                *(
+                    tile_image(img)
+                    for img in (img_pt, img_iso_1, img_iso_2, img_iso_6, img_iso_9)
+                )
+            )
+        )
 
         print("[VLF] Inferring...")
-        in_imgs = []
-        for img in (img_pt, img_iso_1, img_iso_2, img_iso_6, img_iso_9):
-            in_img = np.copy(img)
-            in_img[:, :, 0:3] = in_img[:, :, 0:3] * 2 - 1
-            in_img = torch.from_numpy(in_img).permute(2, 0, 1)
-            in_imgs.append(in_img)
+        out_tiles = []
+        for tile in in_tiles:
+            in_imgs = []
+            for img in (tile[0], tile[1], tile[2], tile[3], tile[4]):
+                in_img = np.copy(img)
+                in_img[:, :, 0:3] = in_img[:, :, 0:3] * 2 - 1
+                in_img = torch.from_numpy(in_img).permute(2, 0, 1)
+                in_imgs.append(in_img)
 
-        in_tensor = torch.cat(in_imgs, dim=0).unsqueeze(0)
-        with torch.no_grad():
-            out_tensor = model(in_tensor)
+            in_tensor = torch.cat(in_imgs, dim=0).unsqueeze(0)
+            with torch.no_grad():
+                out_tensor = model(in_tensor)
 
-        out_img = out_tensor.squeeze(0).permute(1, 2, 0).numpy()
+            out_img = out_tensor.squeeze(0).permute(1, 2, 0).numpy()
+            out_tiles.append(out_img)
+
+        print("[VLF] Untiling...")
+        img = untile_image(out_tiles, 1280, 720)
 
         print("[VLF] Saving...")
         for name, data in [
@@ -122,7 +134,7 @@ def infer(ctx: typer.Context):
             ("img_iso_2.png", img_iso_2),
             ("img_iso_6.png", img_iso_6),
             ("img_iso_9.png", img_iso_9),
-            ("img.png", out_img),
+            ("img.png", img),
         ]:
             Image.fromarray((data * 255).astype(np.uint8)).save(
                 config.working_dir / name
