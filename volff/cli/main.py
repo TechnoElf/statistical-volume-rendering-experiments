@@ -81,8 +81,12 @@ def infer(ctx: typer.Context):
     assets_dir = config.working_dir / "assets"
     os.makedirs(assets_dir, exist_ok=True)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[VLF] Using device: {device}")
+
     model = PathTracerModel()
     model.load_state_dict(torch.load(config.working_dir / "model.pth"))
+    model.to(device)
 
     with Tracer.create(1280, 720) as tracer:
         print("[VLF] Loading volume...")
@@ -119,9 +123,9 @@ def infer(ctx: typer.Context):
 
             in_tensor = torch.cat(in_imgs, dim=0).unsqueeze(0)
             with torch.no_grad():
-                out_tensor = model(in_tensor)
+                out_tensor = model(in_tensor.to(device))
 
-            out_img = out_tensor.squeeze(0).permute(1, 2, 0).numpy()
+            out_img = out_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
             out_tiles.append(out_img)
 
         print("[VLF] Untiling...")
