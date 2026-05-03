@@ -121,6 +121,7 @@
           pyopenvdb
           torch-bin
           typer
+          diffusers
         ]);
 
         v3 = pkgs.stdenv.mkDerivation rec {

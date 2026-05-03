@@ -1,0 +1,279 @@
+# Copyright 2025 AI for Oncology Research Group. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import math
+from typing import Optional
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import nn
+
+__all__ = ["hfen_l1", "hfen_l2", "HFENLoss", "HFENL1Loss", "HFENL2Loss"]
+
+
+def _get_log_kernel2d(
+    kernel_size: int | list[int] = 5, sigma: Optional[float | list[float]] = None
+) -> torch.Tensor:
+    """Generates a 2D LoG (Laplacian of Gaussian) kernel.
+
+    Args:
+        kernel_size: Size of the kernel. Default: ``5``.
+        sigma: Standard deviation(s) for the Gaussian distribution. Default: ``None``.
+
+    Returns:
+        Generated LoG kernel.
+    """
+    dim = 2
+    if not kernel_size and sigma:
+        kernel_size = np.ceil(sigma * 6)
+        kernel_size = [kernel_size] * dim
+    elif kernel_size and not sigma:
+        sigma = kernel_size / 6.0
+        sigma = [sigma] * dim
+
+    if isinstance(kernel_size, int):
+        kernel_size = [kernel_size - 1] * dim
+    if isinstance(sigma, float):
+        sigma = [sigma] * dim
+
+    grids = torch.meshgrid(
+        [torch.arange(-size // 2, size // 2 + 1, 1) for size in kernel_size],
+        indexing="ij",
+    )
+
+    kernel = 1
+    for size, std, mgrid in zip(kernel_size, sigma, grids):
+        kernel *= torch.exp(-(mgrid**2 / (2.0 * std**2)))
+
+    final_kernel = (
+        kernel
+        * ((grids[0] ** 2 + grids[1] ** 2) - (2 * sigma[0] * sigma[1]))
+        * (1 / ((2 * math.pi) * (sigma[0] ** 2) * (sigma[1] ** 2)))
+    )
+
+    final_kernel = -final_kernel / torch.sum(final_kernel)
+
+    return final_kernel
+
+
+def _compute_padding(kernel_size: int | list[int] = 5) -> int | tuple[int, ...]:
+    """Computes padding tuple based on the kernel size.
+
+    For square kernels, pad can be an int, else, a tuple with an element for each dimension.
+
+    Args:
+        kernel_size: Size(s) of the kernel.
+
+    Returns:
+        Computed padding.
+    """
+    if isinstance(kernel_size, int):
+        return kernel_size // 2
+    # Else assumed a list
+    computed = [k // 2 for k in kernel_size]
+    out_padding = []
+    for i, _ in enumerate(kernel_size):
+        computed_tmp = computed[-(i + 1)]
+        if kernel_size[i] % 2 == 0:
+            padding = computed_tmp - 1
+        else:
+            padding = computed_tmp
+        out_padding.append(padding)
+        out_padding.append(computed_tmp)
+    return tuple(out_padding)
+
+
+class HFENLoss(nn.Module):
+    r"""High Frequency Error Norm (HFEN) Loss as defined in _[1].
+
+    Calculates:
+
+    .. math::
+
+        || \text{LoG}(x_\text{rec}) - \text{LoG}(x_\text{tar}) ||_C
+
+    Where C can be any norm, LoG is the Laplacian of Gaussian filter, and :math:`x_\text{rec}), \text{LoG}(x_\text{tar}`
+    are the reconstructed inp and target images.
+    If normalized it scales it by :math:`|| \text{LoG}(x_\text{tar}) ||_C`.
+
+    Code was borrowed and adapted from _[2] (not licensed).
+
+    References:
+        .. [1] S. Ravishankar and Y. Bresler, "MR Image Reconstruction From Highly Undersampled k-Space Data by
+            Dictionary Learning," in IEEE Transactions on Medical Imaging, vol. 30, no.
+            5, pp. 1028-1041, May 2011, doi: 10.1109/TMI.2010.2090538.
+        .. [2] https://github.com/styler00dollar/pytorch-loss-functions/blob/main/vic/loss.py
+    """
+
+    def __init__(
+        self,
+        criterion: nn.Module,
+        reduction: str = "mean",
+        kernel_size: int | list[int] = 5,
+        sigma: float | list[float] = 2.5,
+        norm: bool = False,
+    ) -> None:
+        """Inits :obj:`HFENLoss`.
+
+        Args:
+            criterion: Loss function to calculate the difference between log1 and log2.
+            reduction: Criterion reduction. Default: ``"mean"``.
+            kernel_size: Size of the LoG filter kernel. Default: ``15``.
+            sigma: Standard deviation of the LoG filter kernel. Default: ``2.5``.
+            norm: Whether to normalize the loss. Default: ``False``.
+        """
+        super().__init__()
+        self.criterion = criterion(reduction=reduction)
+        self.norm = norm
+        kernel = _get_log_kernel2d(kernel_size, sigma)
+        # Store as (1, 1, H, W) so it can be expanded to (C, 1, H, W) for grouped conv
+        self.register_buffer("kernel", kernel.unsqueeze(0).unsqueeze(0))
+        self.pad = _compute_padding(kernel_size)
+
+    def forward(self, inp: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Forward pass of the :obj:`HFENLoss`.
+
+        Args:
+            inp: Input tensor.
+            target: Target tensor.
+
+        Returns:
+            HFEN loss value.
+        """
+        c = inp.shape[1]
+        weight = self.kernel.expand(c, 1, -1, -1).to(inp.device)
+        log1 = F.conv2d(inp, weight, padding=self.pad, groups=c)
+        log2 = F.conv2d(target, weight, padding=self.pad, groups=c)
+        hfen_loss = self.criterion(log1, log2)
+        if self.norm:
+            hfen_loss /= self.criterion(
+                torch.zeros_like(target, dtype=target.dtype, device=target.device),
+                target,
+            )
+        return hfen_loss
+
+
+class HFENL1Loss(HFENLoss):
+    r"""High Frequency Error Norm (HFEN) Loss using L1Loss criterion.
+
+    Calculates:
+
+    .. math::
+
+        || \text{LoG}(x_\text{rec}) - \text{LoG}(x_\text{tar}) ||_1
+
+    Where LoG is the Laplacian of Gaussian filter, and :math:`x_\text{rec}), \text{LoG}(x_\text{tar}`
+    are the reconstructed inp and target images.
+    If normalized it scales it by :math:`|| \text{LoG}(x_\text{tar}) ||_1`.
+    """
+
+    def __init__(
+        self,
+        reduction: str = "mean",
+        kernel_size: int | list[int] = 15,
+        sigma: float | list[float] = 2.5,
+        norm: bool = False,
+    ) -> None:
+        """Inits :obj:`HFENL1Loss`.
+
+        Args:
+            reduction: Criterion reduction. Default: ``"mean"``.
+            kernel_size: Size of the LoG filter kernel. Default: ``15``.
+            sigma: Standard deviation of the LoG filter kernel. Default: ``2.5``.
+            norm: Whether to normalize the loss. Default: ``False``.
+        """
+        super().__init__(nn.L1Loss, reduction, kernel_size, sigma, norm)
+
+
+class HFENL2Loss(HFENLoss):
+    r"""High Frequency Error Norm (HFEN) Loss using L2Loss criterion.
+
+    Calculates:
+
+    .. math::
+
+        || \text{LoG}(x_\text{rec}) - \text{LoG}(x_\text{tar}) ||_2
+
+    Where LoG is the Laplacian of Gaussian filter, and :math:`x_\text{rec}), \text{LoG}(x_\text{tar}`
+    are the reconstructed inp and target images.
+    If normalized it scales it by :math:`|| \text{LoG}(x_\text{tar}) ||_2`.
+    """
+
+    def __init__(
+        self,
+        reduction: str = "mean",
+        kernel_size: int | list[int] = 15,
+        sigma: float | list[float] = 2.5,
+        norm: bool = False,
+    ) -> None:
+        """Inits :obj:`HFENL2Loss`.
+
+        Args:
+            reduction: Criterion reduction. Default: ``"mean"``.
+            kernel_size: Size of the LoG filter kernel. Default: ``15``.
+            sigma: Standard deviation of the LoG filter kernel. Default: ``2.5``.
+            norm: Whether to normalize the loss. Default: ``False``.
+        """
+        super().__init__(nn.MSELoss, reduction, kernel_size, sigma, norm)
+
+
+def hfen_l1(
+    inp: torch.Tensor,
+    target: torch.Tensor,
+    reduction: str = "mean",
+    kernel_size: int | list[int] = 15,
+    sigma: float | list[float] = 2.5,
+    norm: bool = False,
+) -> torch.Tensor:
+    """Calculates HFENL1 loss between inp and target.
+
+    Args:
+        inp: Input tensor.
+        target: Target tensor.
+        reduction: Criterion reduction. Default: ``"mean"``.
+        kernel_size: Size of the LoG filter kernel. Default: ``15``.
+        sigma: Standard deviation of the LoG filter kernel. Default: ``2.5``.
+        norm: Whether to normalize the loss. Default: ``False``.
+
+    Returns:
+        HFENL1 loss value.
+    """
+    hfen_metric = HFENL1Loss(reduction, kernel_size, sigma, norm)
+    return hfen_metric(inp, target)
+
+
+def hfen_l2(
+    inp: torch.Tensor,
+    target: torch.Tensor,
+    reduction: str = "mean",
+    kernel_size: int | list[int] = 15,
+    sigma: float | list[float] = 2.5,
+    norm: bool = False,
+) -> torch.Tensor:
+    """Calculates HFENL2 loss between inp and target.
+
+    Args:
+        inp: Input tensor.
+        target: Target tensor.
+        reduction: Criterion reduction. Default: ``"mean"``.
+        kernel_size: Size of the LoG filter kernel. Default: ``15``.
+        sigma: Standard deviation of the LoG filter kernel. Default: ``2.5``.
+        norm: Whether to normalize the loss. Default: ``False``.
+
+    Returns:
+        HFENL2 loss value.
+    """
+    hfen_metric = HFENL2Loss(reduction, kernel_size, sigma, norm)
+    return hfen_metric(inp, target)

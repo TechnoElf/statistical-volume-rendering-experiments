@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 
 from volff.constants import asset_sources
 from volff.dataset import PathTracerDataset, random_sample, tile_image, untile_image
+from volff.hfen import HFENL1Loss
 from volff.model import PathTracerModel
 from volff.trace import Tracer
 from volff.volume import load_vdb
@@ -93,13 +94,18 @@ def infer(ctx: typer.Context):
         volume = load_vdb(assets_dir / "MRI-Head.vdb")
 
         print("[VLF] Pathtracing...")
-        img_pt = tracer.trace(volume, 4, yaw=math.pi / 2.0)
+        img_pt = tracer.trace(volume, 1, yaw=math.pi / 2.0)
+        # img_pt = np.zeros((720, 1280, 4), dtype=np.float32)
 
         print("[VLF] Raycasting...")
         img_iso_1 = tracer.isosurface(volume, 0.10, yaw=math.pi / 2.0)
         img_iso_2 = tracer.isosurface(volume, 0.25, yaw=math.pi / 2.0)
         img_iso_6 = tracer.isosurface(volume, 0.65, yaw=math.pi / 2.0)
         img_iso_9 = tracer.isosurface(volume, 0.90, yaw=math.pi / 2.0)
+        # img_iso_1 = np.zeros((720, 1280, 4), dtype=np.float32)
+        # img_iso_2 = np.zeros((720, 1280, 4), dtype=np.float32)
+        # img_iso_6 = np.zeros((720, 1280, 4), dtype=np.float32)
+        # img_iso_9 = np.zeros((720, 1280, 4), dtype=np.float32)
 
         print("[VLF] Tiling...")
         in_tiles = list(
@@ -210,7 +216,8 @@ def train(
 
     model.to(device)
 
-    loss_fn = nn.MSELoss()
+    l1_loss_fn = nn.L1Loss()
+    hfen_loss_fn = HFENL1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, patience=4, factor=0.1
@@ -233,7 +240,9 @@ def train(
 
             optimizer.zero_grad()
             outputs = model(inputs)
-            loss = loss_fn(outputs, targets)
+            o = outputs.clamp(min=1e-6).pow(0.2)  # .sign() * outputs.abs().pow(0.2)
+            t = targets.clamp(min=1e-6).pow(0.2)  # .sign() * targets.abs().pow(0.2)
+            loss = 0.8 * l1_loss_fn(o, t) + 0.1 * hfen_loss_fn(o, t)
             loss.backward()
             optimizer.step()
 
@@ -248,7 +257,9 @@ def train(
                 inputs = inputs.to(device, non_blocking=True)
                 targets = targets.to(device, non_blocking=True)
                 outputs = model(inputs)
-                loss = loss_fn(outputs, targets)
+                o = outputs.clamp(min=1e-6).pow(0.2)  # .sign() * outputs.abs().pow(0.2)
+                t = targets.clamp(min=1e-6).pow(0.2)  # .sign() * targets.abs().pow(0.2)
+                loss = 0.8 * l1_loss_fn(o, t) + 0.1 * hfen_loss_fn(o, t)
                 val_loss += loss.item()
 
         val_loss /= len(val_loader)
