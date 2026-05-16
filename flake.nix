@@ -15,13 +15,13 @@
           config = {
             allowUnfree = true;
             config.cudaSupport = true;
-            config.cudaVersion = "12";
+            config.cudaVersion = "13";
           };
         };
 
         nixglPinned = pkgs.callPackage (nixgl.outPath + "/default.nix") {
-          nvidiaVersion = "580.126.09";
-          nvidiaHash = "sha256-TKxT5I+K3/Zh1HyHiO0kBZokjJ/YCYzq/QiKSYmG7CY=";
+          nvidiaVersion = "580.142";
+          nvidiaHash = "sha256-IJFfzz/+icNVDPk7YKBKKFRTFQ2S4kaOGRGkNiBEdWM=";
         };
 
         python = pkgs.python313;
@@ -113,6 +113,10 @@
           dontStrip = true;
         };
 
+        accelerate = python.pkgs.accelerate.override {
+          torch = python.pkgs.torch-bin;
+        };
+
         pythonEnv = python.withPackages (ps: with ps; [
           matplotlib
           numpy
@@ -120,8 +124,11 @@
           opensimplex
           pyopenvdb
           torch-bin
+          torchvision-bin
           typer
           diffusers
+          einops
+          accelerate
         ]);
 
         v3 = pkgs.stdenv.mkDerivation rec {

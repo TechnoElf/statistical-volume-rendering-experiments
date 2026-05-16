@@ -17,7 +17,8 @@ from torch.utils.data import DataLoader
 from volff.constants import asset_sources
 from volff.dataset import PathTracerDataset, random_sample, tile_image, untile_image
 from volff.hfen import HFENL1Loss
-from volff.model import PathTracerModel
+from volff.models.denoise import SimplePathTracerDenoiseModel
+from volff.pipelines.relighting import gen
 from volff.trace import Tracer
 from volff.volume import load_vdb
 
@@ -85,11 +86,13 @@ def infer(ctx: typer.Context):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[VLF] Using device: {device}")
 
-    model = PathTracerModel()
+    model = SimplePathTracerDenoiseModel()
     model.load_state_dict(torch.load(config.working_dir / "model.pth"))
     model.to(device)
 
-    with Tracer.create(1280, 720) as tracer:
+    width, height = 854, 480
+
+    with Tracer.create(width, height) as tracer:
         print("[VLF] Loading volume...")
         volume = load_vdb(assets_dir / "MRI-Head.vdb")
 
@@ -135,7 +138,7 @@ def infer(ctx: typer.Context):
             out_tiles.append(out_img)
 
         print("[VLF] Untiling...")
-        img = untile_image(out_tiles, 1280, 720)
+        img = untile_image(out_tiles, width, height)
 
         print("[VLF] Saving...")
         for name, data in [
@@ -206,7 +209,7 @@ def train(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[VLF] Using device: {device}")
 
-    model = PathTracerModel()
+    model = SimplePathTracerDenoiseModel()
     if os.path.exists(config.working_dir / "model.pth"):
         print(f"[VLF] Loading existing model")
         s = torch.load(config.working_dir / "model.pth")
@@ -275,6 +278,12 @@ def train(
 
         torch.save(model.state_dict(), config.working_dir / "model.pth")
 
+    print("[VLF] Done.")
+
+
+@cli.command()
+def generate(ctx: typer.Context):
+    gen()
     print("[VLF] Done.")
 
 
