@@ -36,7 +36,7 @@ float sampleDensity(float3 pos) {
 
     float density = densities.SampleLevel(density_sampler, pos, 0);
     if (density > 0.65) {
-        density = 10.0;
+        density = 1.0;
     } else if (density > 0.25) {
         density = 0.5;
     } else {

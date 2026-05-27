@@ -46,7 +46,7 @@ class Tracer:
         self.pt_program = self.device.load_program("pathtracer.slang", ["main"])
         self.pt_kernel = self.device.create_compute_kernel(self.pt_program)
 
-        self.rc_program = self.device.load_program("raycaster.slang", ["main"])
+        self.rc_program = self.device.load_program("levoy.slang", ["main"])
         self.rc_kernel = self.device.create_compute_kernel(self.rc_program)
 
     @classmethod
@@ -69,6 +69,7 @@ class Tracer:
         density_texture.copy_from_numpy(volume)
 
         light_dir = np.array([-0.5, 1.0, 1.0], dtype=np.float32)
+        # light_dir = np.array([0.0, 0.0, 1.0], dtype=np.float32)
         light_dir = light_dir / np.linalg.norm(light_dir)
         light_color = np.array([30.0, 30.0, 30.0], dtype=np.float32)
 

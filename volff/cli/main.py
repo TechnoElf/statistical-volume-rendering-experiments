@@ -1,6 +1,5 @@
 import math
 import os
-import random
 import subprocess
 from pathlib import Path
 from typing import Annotated
@@ -19,7 +18,7 @@ from volff.dataset import PathTracerDataset, random_sample, tile_image, untile_i
 from volff.hfen import HFENL1Loss
 from volff.models.denoise import SimplePathTracerDenoiseModel
 from volff.pipelines.relighting import gen
-from volff.trace import Tracer
+from volff.pipelines.trace import Tracer
 from volff.volume import load_vdb
 
 cli = typer.Typer()

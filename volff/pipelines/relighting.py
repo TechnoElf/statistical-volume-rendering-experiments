@@ -146,7 +146,6 @@ def scatter_ids(x: Tensor, x_ids: Tensor) -> list[Tensor]:
     using position ids to scatter tokens into place
     """
     x_list = []
-    t_coords = []
     for data, pos in zip(x, x_ids):
         _, ch = data.shape  # noqa: F841
         t_ids = pos[:, 0].to(torch.int64)
@@ -165,7 +164,6 @@ def scatter_ids(x: Tensor, x_ids: Tensor) -> list[Tensor]:
         out.scatter_(0, flat_ids.unsqueeze(1).expand(-1, ch), data)
 
         x_list.append(rearrange(out, "(t h w) c -> 1 c t h w", t=t, h=h, w=w))
-        t_coords.append(torch.unique(t_ids, sorted=True))
     return x_list
 
 
