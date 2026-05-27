@@ -1,8 +1,10 @@
 import math
 import random
 import sys
+from pathlib import Path
 
 import huggingface_hub
+import numpy as np
 import torch
 import torchvision
 from accelerate import cpu_offload
@@ -12,9 +14,39 @@ from safetensors.torch import load_file as load_sft
 from torch import Tensor
 
 from volff.models.flux2 import AutoEncoder, AutoEncoderParams, Flux2, Klein4BParams
+from volff.pipelines.levoy import LevoyPipeline
+from volff.pipelines.pipeline import Pipeline
 
 
-def gen():
+class RelightPipeline(Pipeline):
+    def prepare(self, volume: np.ndarray, width: int = 1280, height: int = 720):
+        if self.ctx is None:
+            raise RuntimeError("Context not initialized")
+
+        self.volume = volume
+        self.width = width
+        self.height = height
+
+        self.levoy_pipeline = LevoyPipeline(self.ctx)
+        self.levoy_pipeline.prepare(volume, int(width / 2), int(height / 2))
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    def render(self, params: dict):
+        if self.ctx is None:
+            raise RuntimeError("Context not initialized")
+
+        levoy_path = params.get("levoy_path", "img_levoy.png")
+
+        img_levoy = self.levoy_pipeline.render({**params})
+        Image.fromarray((img_levoy * 255).astype(np.uint8)).save(levoy_path)
+
+        img_flux = gen(levoy_path)
+
+        return img_flux
+
+
+def gen(path: Path) -> np.ndarray:
     config = {
         "repo_id": "black-forest-labs/FLUX.2-klein-4B",
         "ae_repo_id": "black-forest-labs/FLUX.2-dev",
@@ -29,7 +61,7 @@ def gen():
 
     width, height = 1360, 768
     seed = random.randrange(2**31)
-    input_images = ["run/img_iso_2.png"]
+    input_images = [path]
 
     torch_device = torch.device("cuda")
 
@@ -81,12 +113,7 @@ def gen():
     x = x.clamp(-1, 1)
     x = rearrange(x[0], "c h w -> h w c")
 
-    img = Image.fromarray((127.5 * (x + 1.0)).cpu().byte().numpy())
-
-    exif_data = Image.Exif()
-    exif_data[ExifTags.Base.Software] = "AI generated;flux2"
-    exif_data[ExifTags.Base.Make] = "Black Forest Labs"
-    img.save("run/img_flux.png", exif=exif_data, quality=95, subsampling=0)
+    return (0.5 * (x + 1.0)).cpu().numpy()
 
 
 def denoise(

@@ -14,11 +14,12 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from volff.constants import asset_sources
-from volff.dataset import PathTracerDataset, random_sample, tile_image, untile_image
+from volff.dataset import PathTracerDataset, random_sample
 from volff.hfen import HFENL1Loss
 from volff.models.denoise import SimplePathTracerDenoiseModel
-from volff.pipelines.relighting import gen
-from volff.pipelines.trace import Tracer
+from volff.pipelines.denoise import DenoisePipeline
+from volff.pipelines.pathtrace import PathTracePipeline
+from volff.pipelines.relight import RelightPipeline
 from volff.volume import load_vdb
 
 cli = typer.Typer()
@@ -63,12 +64,13 @@ def trace(ctx: typer.Context):
     assets_dir = config.working_dir / "assets"
     os.makedirs(assets_dir, exist_ok=True)
 
-    with Tracer.create(1280, 720) as tracer:
+    with PathTracePipeline() as p:
         print("[VLF] Loading volume...")
         volume = load_vdb(assets_dir / "MRI-Head.vdb")
+        p.prepare(volume)
 
         print("[VLF] Pathtracing...")
-        img = tracer.trace(volume, 256, yaw=math.pi / 2.0)
+        img = p.render({"iterations": 256, "yaw": math.pi / 2.0})
 
         print("[VLF] Saving...")
         Image.fromarray((img * 255).astype(np.uint8)).save(
@@ -82,75 +84,20 @@ def infer(ctx: typer.Context):
     assets_dir = config.working_dir / "assets"
     os.makedirs(assets_dir, exist_ok=True)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[VLF] Using device: {device}")
-
-    model = SimplePathTracerDenoiseModel()
-    model.load_state_dict(torch.load(config.working_dir / "model.pth"))
-    model.to(device)
-
-    width, height = 854, 480
-
-    with Tracer.create(width, height) as tracer:
+    with DenoisePipeline() as p:
         print("[VLF] Loading volume...")
         volume = load_vdb(assets_dir / "MRI-Head.vdb")
+        p.prepare(volume)
 
-        print("[VLF] Pathtracing...")
-        img_pt = tracer.trace(volume, 1, yaw=math.pi / 2.0)
-        # img_pt = np.zeros((720, 1280, 4), dtype=np.float32)
-
-        print("[VLF] Raycasting...")
-        img_iso_1 = tracer.isosurface(volume, 0.10, yaw=math.pi / 2.0)
-        img_iso_2 = tracer.isosurface(volume, 0.25, yaw=math.pi / 2.0)
-        img_iso_6 = tracer.isosurface(volume, 0.65, yaw=math.pi / 2.0)
-        img_iso_9 = tracer.isosurface(volume, 0.90, yaw=math.pi / 2.0)
-        # img_iso_1 = np.zeros((720, 1280, 4), dtype=np.float32)
-        # img_iso_2 = np.zeros((720, 1280, 4), dtype=np.float32)
-        # img_iso_6 = np.zeros((720, 1280, 4), dtype=np.float32)
-        # img_iso_9 = np.zeros((720, 1280, 4), dtype=np.float32)
-
-        print("[VLF] Tiling...")
-        in_tiles = list(
-            zip(
-                *(
-                    tile_image(img)
-                    for img in (img_pt, img_iso_1, img_iso_2, img_iso_6, img_iso_9)
-                )
-            )
+        print("[VLF] Rendering...")
+        img = p.render(
+            {"model_path": config.working_dir / "model.pth", "yaw": math.pi / 2.0}
         )
 
-        print("[VLF] Inferring...")
-        out_tiles = []
-        for tile in in_tiles:
-            in_imgs = []
-            for img in (tile[0], tile[1], tile[2], tile[3], tile[4]):
-                in_img = np.copy(img)
-                in_img[:, :, 0:3] = in_img[:, :, 0:3] * 2 - 1
-                in_img = torch.from_numpy(in_img).permute(2, 0, 1)
-                in_imgs.append(in_img)
-
-            in_tensor = torch.cat(in_imgs, dim=0).unsqueeze(0)
-            with torch.no_grad():
-                out_tensor = model(in_tensor.to(device))
-
-            out_img = out_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
-            out_tiles.append(out_img)
-
-        print("[VLF] Untiling...")
-        img = untile_image(out_tiles, width, height)
-
         print("[VLF] Saving...")
-        for name, data in [
-            ("img_pt.png", img_pt),
-            ("img_iso_1.png", img_iso_1),
-            ("img_iso_2.png", img_iso_2),
-            ("img_iso_6.png", img_iso_6),
-            ("img_iso_9.png", img_iso_9),
-            ("img.png", img),
-        ]:
-            Image.fromarray((data * 255).astype(np.uint8)).save(
-                config.working_dir / name
-            )
+        Image.fromarray((img * 255).astype(np.uint8)).save(
+            config.working_dir / "img.png"
+        )
 
         print("[VLF] Done.")
 
@@ -282,7 +229,25 @@ def train(
 
 @cli.command()
 def generate(ctx: typer.Context):
-    gen()
+    config = ctx.obj
+    assets_dir = config.working_dir / "assets"
+    os.makedirs(assets_dir, exist_ok=True)
+
+    with RelightPipeline() as p:
+        print("[VLF] Loading volume...")
+        volume = load_vdb(assets_dir / "MRI-Head.vdb")
+        p.prepare(volume)
+
+        print("[VLF] Rendering...")
+        img = p.render(
+            {"levoy_path": config.working_dir / "img_levoy.png", "yaw": math.pi / 2.0}
+        )
+
+        print("[VLF] Saving...")
+        Image.fromarray((img * 255).astype(np.uint8)).save(
+            config.working_dir / "img_flux.png"
+        )
+
     print("[VLF] Done.")
 
 
