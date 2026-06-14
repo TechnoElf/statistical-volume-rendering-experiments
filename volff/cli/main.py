@@ -258,9 +258,8 @@ def generate(ctx: typer.Context):
         p.prepare(volume)
 
         print("[VLF] Rendering...")
-        img = p.render(
+        img = p.train(
             {
-                "levoy_path": config.working_dir / "img_levoy.png",
                 "pitch": math.pi / 2.0,
                 "yaw": 0,
                 "roll": math.pi / 2.0,

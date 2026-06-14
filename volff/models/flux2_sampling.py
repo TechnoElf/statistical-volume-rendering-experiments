@@ -1,0 +1,547 @@
+import math
+import random
+import sys
+
+import huggingface_hub
+import numpy as np
+import torch
+import torchvision
+from accelerate import cpu_offload
+from einops import rearrange
+from PIL import Image
+from safetensors.torch import load_file as load_sft
+from torch import Tensor
+
+from volff.models.flux2 import AutoEncoder, AutoEncoderParams, Flux2, Klein4BParams
+
+
+def gen(image: np.ndarray) -> np.ndarray:
+    config = {
+        "repo_id": "black-forest-labs/FLUX.2-klein-4B",
+        "ae_repo_id": "black-forest-labs/FLUX.2-dev",
+        "filename": "flux-2-klein-4b.safetensors",
+        "filename_ae": "ae.safetensors",
+        "params": Klein4BParams(),
+        "model_path": "KLEIN_4B_MODEL_PATH",
+        "defaults": {"guidance": 1.0, "num_steps": 4},
+        "fixed_params": {"guidance", "num_steps"},  # guidance and timestep distilled
+        "guidance_distilled": True,
+    }
+
+    width, height = 1360, 768
+    seed = random.randrange(2**31)
+
+    torch_device = torch.device("cuda")
+
+    model = load_flow_model(config, device=torch_device)
+    model.eval()
+    model = cpu_offload(model, torch_device)
+
+    ae = load_ae(config, device=torch_device)
+    ae.eval()
+    ae = cpu_offload(ae, torch_device)
+
+    img_ctx = [Image.fromarray(image)]
+
+    with torch.no_grad():
+        ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
+
+        ctx = torch.load("run/prompt_ctx_path_traced.pt")
+        ctx = ctx.to(device="cuda")
+        ctx, ctx_ids = batched_prc_txt(ctx)
+
+        # Create noise
+        shape = (1, 128, height // 16, width // 16)
+        generator = torch.Generator(device="cuda").manual_seed(seed)
+        randn = torch.randn(
+            shape, generator=generator, dtype=torch.bfloat16, device="cuda"
+        )
+        randn = torch.randn(
+            shape, generator=generator, dtype=torch.bfloat16, device="cuda"
+        )
+        x, x_ids = batched_prc_img(randn)
+
+        timesteps = get_schedule(config["defaults"]["num_steps"], x.shape[1])
+
+        x = denoise(
+            model,
+            x,
+            x_ids,
+            ctx,
+            ctx_ids,
+            timesteps=timesteps,
+            guidance=config["defaults"]["guidance"],
+            img_cond_seq=ref_tokens,
+            img_cond_seq_ids=ref_ids,
+        )
+
+        x = torch.cat(scatter_ids(x, x_ids)).squeeze(2)
+        x = ae.decode(x).float()
+
+    x = x.clamp(-1, 1)
+    x = rearrange(x[0], "c h w -> h w c")
+
+    return (0.5 * (x + 1.0)).cpu().numpy()
+
+
+def train_ctx(
+    image: np.ndarray,
+    target: np.ndarray,
+    num_iters: int = 100,
+    lr: float = 1e-2,
+    seed: int | None = None,
+    ctx_path: str = "run/prompt_ctx_path_traced.pt",
+) -> np.ndarray:
+    """Optimise the ctx vector so gen(image) matches target.
+
+    Args:
+        image:    Reference input, same format as gen's input.
+        target:   Desired output (h, w, c) float32 in [0, 1], same as gen's return.
+        num_iters: Number of gradient steps.
+        lr:       Adam learning rate.
+        seed:     Fixed noise seed for a deterministic forward pass (random if None).
+        ctx_path: Path to the initial ctx tensor.
+
+    Returns:
+        Optimised ctx as a float32 numpy array.
+    """
+    config = {
+        "repo_id": "black-forest-labs/FLUX.2-klein-4B",
+        "ae_repo_id": "black-forest-labs/FLUX.2-dev",
+        "filename": "flux-2-klein-4b.safetensors",
+        "filename_ae": "ae.safetensors",
+        "params": Klein4BParams(),
+        "model_path": "KLEIN_4B_MODEL_PATH",
+        "defaults": {"guidance": 1.0, "num_steps": 4},
+        "fixed_params": {"guidance", "num_steps"},
+        "guidance_distilled": True,
+    }
+
+    width, height = 1360, 768
+    if seed is None:
+        seed = random.randrange(2**31)
+
+    torch_device = torch.device("cuda")
+
+    model = load_flow_model(config, device=torch_device)
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad_(False)
+    model = cpu_offload(model, torch_device)
+
+    ae = load_ae(config, device=torch_device)
+    ae.eval()
+    for p in ae.parameters():
+        p.requires_grad_(False)
+    ae = cpu_offload(ae, torch_device)
+
+    # img_ctx = [Image.fromarray(image)]
+    img_ctx = []
+
+    with torch.no_grad():
+        ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
+
+    # Replicate the double-randn from gen to get the same noise for a given seed.
+    shape = (1, 128, height // 16, width // 16)
+    generator = torch.Generator(device="cuda").manual_seed(seed)
+    torch.randn(shape, generator=generator, dtype=torch.bfloat16, device="cuda")
+    fixed_noise = torch.randn(
+        shape, generator=generator, dtype=torch.bfloat16, device="cuda"
+    )
+
+    seq_len = (height // 16) * (width // 16)
+    timesteps = get_schedule(config["defaults"]["num_steps"], seq_len)
+
+    # target: (h, w, c) float [0, 1] -> (c, h, w)
+    target_t = torch.from_numpy(target).float().cuda().permute(2, 0, 1)
+
+    ctx_raw = torch.load(ctx_path).to(device="cuda")
+    ctx_param = torch.nn.Parameter(ctx_raw.clone().float())
+    optimizer = torch.optim.Adam([ctx_param], lr=lr)
+
+    for i in range(num_iters):
+        optimizer.zero_grad()
+
+        # Cast to bfloat16 to match the model; gradients flow through the cast.
+        ctx, ctx_ids = batched_prc_txt(ctx_param.bfloat16())
+        x, x_ids = batched_prc_img(fixed_noise.clone())
+
+        x = denoise(
+            model,
+            x,
+            x_ids,
+            ctx,
+            ctx_ids,
+            timesteps=timesteps,
+            guidance=config["defaults"]["guidance"],
+            img_cond_seq=ref_tokens,
+            img_cond_seq_ids=ref_ids,
+        )
+
+        x = torch.cat(scatter_ids(x, x_ids)).squeeze(2)
+        x_decoded = ae.decode(x).float()
+        x_out = 0.5 * (x_decoded.clamp(-1, 1) + 1.0)  # (1, c, h, w) in [0, 1]
+
+        loss = torch.nn.functional.mse_loss(x_out[0], target_t)
+        loss.backward()
+        optimizer.step()
+
+        if (i + 1) % 10 == 0:
+            print(f"iter {i + 1}/{num_iters}  loss: {loss.item():.6f}")
+
+    return ctx_param.detach().cpu().numpy()
+
+
+def denoise(
+    model: Flux2,
+    img: Tensor,
+    img_ids: Tensor,
+    txt: Tensor,
+    txt_ids: Tensor,
+    timesteps: list[float],
+    guidance: float,
+    img_cond_seq: Tensor | None = None,
+    img_cond_seq_ids: Tensor | None = None,
+):
+    guidance_vec = torch.full(
+        (img.shape[0],), guidance, device=img.device, dtype=img.dtype
+    )
+    for t_curr, t_prev in zip(timesteps[:-1], timesteps[1:]):
+        t_vec = torch.full((img.shape[0],), t_curr, dtype=img.dtype, device=img.device)
+        img_input = img
+        img_input_ids = img_ids
+        if img_cond_seq is not None:
+            assert img_cond_seq_ids is not None, (
+                "You need to provide either both or neither of the sequence conditioning"
+            )
+            img_input = torch.cat((img_input, img_cond_seq), dim=1)
+            img_input_ids = torch.cat((img_input_ids, img_cond_seq_ids), dim=1)
+        pred = model(
+            x=img_input,
+            x_ids=img_input_ids,
+            timesteps=t_vec,
+            ctx=txt,
+            ctx_ids=txt_ids,
+            guidance=guidance_vec,
+        )
+        if img_input_ids is not None:
+            pred = pred[:, : img.shape[1]]
+
+        img = img + (t_prev - t_curr) * pred
+
+    return img
+
+
+def compress_time(t_ids: Tensor) -> Tensor:
+    assert t_ids.ndim == 1
+    t_ids_max = torch.max(t_ids)
+    t_remap = torch.zeros((t_ids_max + 1,), device=t_ids.device, dtype=t_ids.dtype)
+    t_unique_sorted_ids = torch.unique(t_ids, sorted=True)
+    t_remap[t_unique_sorted_ids] = torch.arange(
+        len(t_unique_sorted_ids), device=t_ids.device, dtype=t_ids.dtype
+    )
+    t_ids_compressed = t_remap[t_ids]
+    return t_ids_compressed
+
+
+def scatter_ids(x: Tensor, x_ids: Tensor) -> list[Tensor]:
+    """
+    using position ids to scatter tokens into place
+    """
+    x_list = []
+    for data, pos in zip(x, x_ids):
+        _, ch = data.shape  # noqa: F841
+        t_ids = pos[:, 0].to(torch.int64)
+        h_ids = pos[:, 1].to(torch.int64)
+        w_ids = pos[:, 2].to(torch.int64)
+
+        t_ids_cmpr = compress_time(t_ids)
+
+        t = torch.max(t_ids_cmpr) + 1
+        h = torch.max(h_ids) + 1
+        w = torch.max(w_ids) + 1
+
+        flat_ids = t_ids_cmpr * w * h + h_ids * w + w_ids
+
+        out = torch.zeros((t * h * w, ch), device=data.device, dtype=data.dtype)
+        out.scatter_(0, flat_ids.unsqueeze(1).expand(-1, ch), data)
+
+        x_list.append(rearrange(out, "(t h w) c -> 1 c t h w", t=t, h=h, w=w))
+    return x_list
+
+
+def center_crop_to_multiple_of_x(
+    img: Image.Image | list[Image.Image], x: int
+) -> Image.Image | list[Image.Image]:
+    if isinstance(img, list):
+        return [center_crop_to_multiple_of_x(_img, x) for _img in img]  # type: ignore
+
+    w, h = img.size
+    new_w = (w // x) * x
+    new_h = (h // x) * x
+
+    left = (w - new_w) // 2
+    top = (h - new_h) // 2
+    right = left + new_w
+    bottom = top + new_h
+
+    resized = img.crop((left, top, right, bottom))
+    return resized
+
+
+def cap_pixels(img: Image.Image | list[Image.Image], k):
+    if isinstance(img, list):
+        return [cap_pixels(_img, k) for _img in img]
+    w, h = img.size
+    pixel_count = w * h
+
+    if pixel_count <= k:
+        return img
+
+    # Scaling factor to reduce total pixels below K
+    scale = math.sqrt(k / pixel_count)
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+
+    return img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+
+def cap_min_pixels(img: Image.Image | list[Image.Image], max_ar=8, min_sidelength=64):
+    if isinstance(img, list):
+        return [
+            cap_min_pixels(_img, max_ar=max_ar, min_sidelength=min_sidelength)
+            for _img in img
+        ]
+    w, h = img.size
+    if w < min_sidelength or h < min_sidelength:
+        raise ValueError(
+            f"Skipping due to minimal sidelength underschritten h {h} w {w}"
+        )
+    if w / h > max_ar or h / w > max_ar:
+        raise ValueError(f"Skipping due to maximal ar overschritten h {h} w {w}")
+    return img
+
+
+def to_rgb(img: Image.Image | list[Image.Image]):
+    if isinstance(img, list):
+        return [
+            to_rgb(
+                _img,
+            )
+            for _img in img
+        ]
+    return img.convert("RGB")
+
+
+def default_images_prep(
+    x: Image.Image | list[Image.Image],
+) -> torch.Tensor | list[torch.Tensor]:
+    if isinstance(x, list):
+        return [default_images_prep(e) for e in x]  # type: ignore
+    x_tensor = torchvision.transforms.ToTensor()(x)
+    return 2 * x_tensor - 1
+
+
+def default_prep(
+    img: Image.Image | list[Image.Image],
+    limit_pixels: int | None,
+    ensure_multiple: int = 16,
+) -> torch.Tensor | list[torch.Tensor]:
+    img_rgb = to_rgb(img)
+    img_min = cap_min_pixels(img_rgb)  # type: ignore
+    if limit_pixels is not None:
+        img_cap = cap_pixels(img_min, limit_pixels)  # type: ignore
+    else:
+        img_cap = img_min
+    img_crop = center_crop_to_multiple_of_x(img_cap, ensure_multiple)  # type: ignore
+    img_tensor = default_images_prep(img_crop)
+    return img_tensor
+
+
+def encode_image_refs(ae, img_ctx: list[Image.Image]):
+    scale = 10
+
+    if len(img_ctx) > 1:
+        limit_pixels = 1024**2
+    elif len(img_ctx) == 1:
+        limit_pixels = 2024**2
+    else:
+        limit_pixels = None
+
+    if not img_ctx:
+        return None, None
+
+    img_ctx_prep = default_prep(img=img_ctx, limit_pixels=limit_pixels)
+    if not isinstance(img_ctx_prep, list):
+        img_ctx_prep = [img_ctx_prep]
+
+    # Encode each reference image
+    encoded_refs = []
+    for img in img_ctx_prep:
+        encoded = ae.encode(img[None].cuda())[0]
+        encoded_refs.append(encoded)
+
+    # Create time offsets for each reference
+    t_off = [scale + scale * t for t in torch.arange(0, len(encoded_refs))]
+    t_off = [t.view(-1) for t in t_off]
+
+    # Process with position IDs
+    ref_tokens, ref_ids = listed_prc_img(encoded_refs, t_coord=t_off)
+
+    # Concatenate all references along sequence dimension
+    ref_tokens = torch.cat(ref_tokens, dim=0)  # (total_ref_tokens, C)
+    ref_ids = torch.cat(ref_ids, dim=0)  # (total_ref_tokens, 4)
+
+    # Add batch dimension
+    ref_tokens = ref_tokens.unsqueeze(0)  # (1, total_ref_tokens, C)
+    ref_ids = ref_ids.unsqueeze(0)  # (1, total_ref_tokens, 4)
+
+    return ref_tokens.to(torch.bfloat16), ref_ids
+
+
+def generalized_time_snr_shift(t: Tensor, mu: float, sigma: float) -> Tensor:
+    return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
+
+
+def compute_empirical_mu(image_seq_len: int, num_steps: int) -> float:
+    a1, b1 = 8.73809524e-05, 1.89833333
+    a2, b2 = 0.00016927, 0.45666666
+
+    if image_seq_len > 4300:
+        mu = a2 * image_seq_len + b2
+        return float(mu)
+
+    m_200 = a2 * image_seq_len + b2
+    m_10 = a1 * image_seq_len + b1
+
+    a = (m_200 - m_10) / 190.0
+    b = m_200 - 200.0 * a
+    mu = a * num_steps + b
+
+    return float(mu)
+
+
+def get_schedule(num_steps: int, image_seq_len: int) -> list[float]:
+    mu = compute_empirical_mu(image_seq_len, num_steps)
+    timesteps = torch.linspace(1, 0, num_steps + 1)
+    timesteps = generalized_time_snr_shift(timesteps, mu, 1.0)
+    return timesteps.tolist()
+
+
+def load_flow_model(config, device: str | torch.device = "cuda") -> Flux2:
+    try:
+        weight_path = huggingface_hub.hf_hub_download(
+            repo_id=config["repo_id"],
+            filename=config["filename"],
+            repo_type="model",
+        )
+    except huggingface_hub.errors.RepositoryNotFoundError:
+        print(
+            f"Failed to access the model repository. Please check your internet "
+            f"connection and make sure you've access to {config['repo_id']}."
+            "Stopping."
+        )
+        sys.exit(1)
+
+    with torch.device("meta"):
+        model = Flux2(config["params"]).to(torch.bfloat16)
+    print(f"Loading {weight_path} for the FLUX.2 weights")
+    sd = load_sft(weight_path, device=str(device))
+    model.load_state_dict(sd, strict=False, assign=True)
+    return model.to(device)
+
+
+def load_ae(config, device: str | torch.device = "cuda") -> AutoEncoder:
+    try:
+        ae_repo = config.get("ae_repo_id", config["repo_id"])
+        weight_path = huggingface_hub.hf_hub_download(
+            repo_id=ae_repo,
+            filename=config["filename_ae"],
+            repo_type="model",
+        )
+    except huggingface_hub.errors.RepositoryNotFoundError:
+        print(
+            f"Failed to access the model repository. Please check your internet "
+            f"connection and make sure you've access to {config['repo_id']}."
+            "Stopping."
+        )
+        sys.exit(1)
+
+    if isinstance(device, str):
+        device = torch.device(device)
+    with torch.device("meta"):
+        ae = AutoEncoder(AutoEncoderParams())
+
+    print(f"Loading {weight_path} for the AutoEncoder weights")
+    sd = load_sft(weight_path, device=str(device))
+    ae.load_state_dict(sd, strict=True, assign=True)
+
+    return ae.to(device)
+
+
+def batched_wrapper(fn):
+    def batched_prc(x: Tensor, t_coord: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        results = []
+        for i in range(len(x)):
+            results.append(
+                fn(
+                    x[i],
+                    t_coord[i] if t_coord is not None else None,
+                )
+            )
+        x, x_ids = zip(*results)
+        return torch.stack(x), torch.stack(x_ids)
+
+    return batched_prc
+
+
+def listed_wrapper(fn):
+    def listed_prc(
+        x: list[Tensor],
+        t_coord: list[Tensor] | None = None,
+    ) -> tuple[list[Tensor], list[Tensor]]:
+        results = []
+        for i in range(len(x)):
+            results.append(
+                fn(
+                    x[i],
+                    t_coord[i] if t_coord is not None else None,
+                )
+            )
+        x, x_ids = zip(*results)
+        return list(x), list(x_ids)
+
+    return listed_prc
+
+
+def prc_img(x: Tensor, t_coord: Tensor | None = None) -> tuple[Tensor, Tensor]:
+    _, h, w = x.shape  # noqa: F841
+    x_coords = {
+        "t": torch.arange(1) if t_coord is None else t_coord,
+        "h": torch.arange(h),
+        "w": torch.arange(w),
+        "l": torch.arange(1),
+    }
+    x_ids = torch.cartesian_prod(
+        x_coords["t"], x_coords["h"], x_coords["w"], x_coords["l"]
+    )
+    x = rearrange(x, "c h w -> (h w) c")
+    return x, x_ids.to(x.device)
+
+
+def prc_txt(x: Tensor, t_coord: Tensor | None = None) -> tuple[Tensor, Tensor]:
+    _l, _ = x.shape  # noqa: F841
+
+    coords = {
+        "t": torch.arange(1) if t_coord is None else t_coord,
+        "h": torch.arange(1),  # dummy dimension
+        "w": torch.arange(1),  # dummy dimension
+        "l": torch.arange(_l),
+    }
+    x_ids = torch.cartesian_prod(coords["t"], coords["h"], coords["w"], coords["l"])
+    return x, x_ids.to(x.device)
+
+
+listed_prc_img = listed_wrapper(prc_img)
+batched_prc_img = batched_wrapper(prc_img)
+batched_prc_txt = batched_wrapper(prc_txt)
