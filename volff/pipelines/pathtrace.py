@@ -49,6 +49,7 @@ class PathTracePipeline(Pipeline):
         yaw = params.get("yaw", 0.0)
         roll = params.get("roll", 0.0)
         iterations = params.get("iterations", 64)
+        threshold = params.get("threshold", 0.8)
 
         density_texture = self.ctx.device.create_texture(
             type=spy.TextureType.texture_3d,
@@ -63,10 +64,10 @@ class PathTracePipeline(Pipeline):
 
         light_dir = np.array([-0.5, 1.0, 1.0], dtype=np.float32)
         light_dir = light_dir / np.linalg.norm(light_dir)
-        light_color = np.array([30.0, 30.0, 30.0], dtype=np.float32)
+        light_color = np.array([10.0, 10.0, 10.0], dtype=np.float32)
 
-        sigma_a = 0.1
-        sigma_s = 10.0
+        sigma_a = 1.0
+        sigma_s = 100.0
 
         model, inv_model, view, inv_view, projection, inv_projection = setup_transforms(
             self.width, self.height, pitch, yaw, roll
@@ -91,6 +92,7 @@ class PathTracePipeline(Pipeline):
                     "light_color": light_color,
                     "sigma_a": sigma_a,
                     "sigma_s": sigma_s,
+                    "threshold": threshold,
                 },
             )
 

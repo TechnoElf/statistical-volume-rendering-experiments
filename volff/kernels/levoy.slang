@@ -52,30 +52,32 @@ void main(uint3 tid: SV_DispatchThreadID) {
             float3 step_pos = pos + dir * t;
             float density = sampleDensityNoMap(step_pos);
 
-            float3 gradient = float3(
-                density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(1.0 / 128.0, 0, 0))),
-                density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(0, 1.0 / 128.0, 0))),
-                density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(0, 0, 1.0 / 128.0)))
-            );
-            float3 normal = -normalize(gradient);
+            if (sampleDensity(step_pos) > 0.5) {
+                float3 gradient = float3(
+                    density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(1.0 / 128.0, 0, 0))),
+                    density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(0, 1.0 / 128.0, 0))),
+                    density - sampleDensityNoMap(step_pos - mul((float3x3)inv_model, float3(0, 0, 1.0 / 128.0)))
+                );
+                float3 normal = -normalize(gradient);
 
-            float diffuse = dot(normal, normalize(light_dir));
-            if ((asuint(diffuse) & 0x7fffffff) > 0x7f800000) {
-                diffuse = 0;
+                float diffuse = dot(normal, normalize(light_dir));
+                if ((asuint(diffuse) & 0x7fffffff) > 0x7f800000) {
+                    diffuse = 0;
+                }
+                diffuse = clamp(diffuse, 0, 1);
+
+                float specular = dot(normal, normalize(light_dir + local_dir));
+                if ((asuint(specular) & 0x7fffffff) > 0x7f800000) {
+                    specular = 0;
+                }
+                specular = clamp(specular, 0, 1);
+
+                float3 albedo = sampleAlbedo(step_pos);
+                float3 local_color = (0.1 + 0.7 * diffuse + 0.7 * pow(specular, 2.0)) * albedo;
+                float opacity = density * 0.1;
+
+                color = (1.0 - opacity) * color + opacity * local_color;
             }
-            diffuse = clamp(diffuse, 0, 1);
-
-            float specular = dot(normal, normalize(light_dir + local_dir));
-            if ((asuint(specular) & 0x7fffffff) > 0x7f800000) {
-                specular = 0;
-            }
-            specular = clamp(specular, 0, 1);
-
-            float3 albedo = sampleAlbedo(step_pos);
-            float3 local_color = (0.1 + 0.7 * diffuse + 0.7 * pow(specular, 2.0)) * albedo;
-            float opacity = density * 0.1;
-
-            color = (1.0 - opacity) * color + opacity * local_color;
         }
     }
 

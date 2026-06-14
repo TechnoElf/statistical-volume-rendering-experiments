@@ -72,7 +72,7 @@ void main(uint3 tid: SV_DispatchThreadID) {
             profile[3] = getRealtimeClockLow();
         }
 
-        const int MAX_BOUNCES = 8;
+        const int MAX_BOUNCES = 16;
         for (int bounce = 0; bounce < MAX_BOUNCES; bounce++) {
             if (all(tid.xy == uint2(640, 360))) {
                 profile[4 + bounce] = getRealtimeClockLow();

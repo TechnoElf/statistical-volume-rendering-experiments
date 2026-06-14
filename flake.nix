@@ -129,6 +129,7 @@
           diffusers
           einops
           accelerate
+          scipy
         ]);
 
         v3 = pkgs.stdenv.mkDerivation rec {

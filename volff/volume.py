@@ -8,8 +8,10 @@ def load_vdb(path: Path):
     grid, metadata = vdb.readAll(str(path))
     grid = grid[0]
     acc = grid.getConstAccessor()
-    start = grid.metadata["file_bbox_min"]
-    end = grid.metadata["file_bbox_max"]
+    # start = grid.metadata["file_bbox_min"]
+    # end = grid.metadata["file_bbox_max"]
+    start = (0, 0, 0)
+    end = (255, 255, 255)
     size = (end[0] - start[0] + 1, end[1] - start[1] + 1, end[2] - start[2] + 1)
 
     volume = np.zeros(size, dtype=np.float32)

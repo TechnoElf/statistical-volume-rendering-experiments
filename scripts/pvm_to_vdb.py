@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import openvdb as vdb
+from scipy.ndimage import zoom
 
 
 def parse_pvm(path):
@@ -92,6 +93,27 @@ def main():
         type=Path,
         help="path to the output .vdb file (default: input with .vdb extension)",
     )
+    parser.add_argument(
+        "--scale-x",
+        type=float,
+        default=1.0,
+        metavar="SX",
+        help="scale factor along x axis (default: 1.0)",
+    )
+    parser.add_argument(
+        "--scale-y",
+        type=float,
+        default=1.0,
+        metavar="SY",
+        help="scale factor along y axis (default: 1.0)",
+    )
+    parser.add_argument(
+        "--scale-z",
+        type=float,
+        default=1.0,
+        metavar="SZ",
+        help="scale factor along z axis (default: 1.0)",
+    )
     args = parser.parse_args()
 
     if not args.input.exists():
@@ -101,6 +123,34 @@ def main():
     output = args.output if args.output else args.input.with_suffix(".vdb")
 
     volume = parse_pvm(args.input)
+
+    target = 256
+    wx, wy, wz = volume.shape
+    zoom_factors = (
+        args.scale_x * target / wx,
+        args.scale_y * target / wy,
+        args.scale_z * target / wz,
+    )
+    volume = zoom(volume, zoom_factors, order=1).astype(np.float32)
+    print(f"Resampled volume to {volume.shape[0]}x{volume.shape[1]}x{volume.shape[2]}")
+
+    def center_slice(size):
+        if size >= target:
+            start = (size - target) // 2
+            return slice(start, start + target), slice(None)
+        else:
+            start = (target - size) // 2
+            return slice(None), slice(start, start + size)
+
+    sx, sy, sz = volume.shape
+    xs, xd = center_slice(sx)
+    ys, yd = center_slice(sy)
+    zs, zd = center_slice(sz)
+
+    result = np.zeros((target, target, target), dtype=np.float32)
+    result[xd, yd, zd] = volume[xs, ys, zs]
+    volume = result
+    print(f"Output volume: {volume.shape[0]}x{volume.shape[1]}x{volume.shape[2]}")
 
     grid = vdb.FloatGrid()
     grid.copyFromArray(volume)

@@ -46,14 +46,26 @@ def gather(ctx: typer.Context):
     assets_dir = config.working_dir / "assets"
     os.makedirs(assets_dir, exist_ok=True)
 
-    for name, url in asset_sources.items():
+    for name, info in asset_sources.items():
         print(f"[VLF] Retrieving {name}...")
-        urlretrieve(url, assets_dir / name)
+        urlretrieve(info["url"], assets_dir / name)
 
-    for name, url in asset_sources.items():
+    for name, info in asset_sources.items():
         print(f"[VLF] Processing {name}...")
         subprocess.run(["pvmdds", assets_dir / name])
-        subprocess.run(["python", "scripts/pvm_to_vdb.py", assets_dir / name])
+        subprocess.run(
+            [
+                "python",
+                "scripts/pvm_to_vdb.py",
+                assets_dir / name,
+                "--scale-x",
+                str(info["scale"][0]),
+                "--scale-y",
+                str(info["scale"][1]),
+                "--scale-z",
+                str(info["scale"][2]),
+            ]
+        )
 
     print("[VLF] Done.")
 
@@ -66,15 +78,22 @@ def trace(ctx: typer.Context):
 
     with PathTracePipeline() as p:
         print("[VLF] Loading volume...")
-        volume = load_vdb(assets_dir / "MRI-Head.vdb")
+        volume = load_vdb(assets_dir / "CT-Chest.vdb")
         p.prepare(volume)
 
-        print("[VLF] Pathtracing...")
-        img = p.render({"iterations": 256, "yaw": math.pi / 2.0})
+        print(f"[VLF] Pathtracing...")
+        img = p.render(
+            {
+                "iterations": 512,
+                "pitch": math.pi / 2.0,
+                "yaw": 0,
+                "roll": math.pi / 2.0,
+            }
+        )
 
         print("[VLF] Saving...")
         Image.fromarray((img * 255).astype(np.uint8)).save(
-            config.working_dir / "img_ref.png"
+            config.working_dir / f"img_ref.png"
         )
 
 
@@ -86,7 +105,7 @@ def infer(ctx: typer.Context):
 
     with DenoisePipeline() as p:
         print("[VLF] Loading volume...")
-        volume = load_vdb(assets_dir / "MRI-Head.vdb")
+        volume = load_vdb(assets_dir / "CT-Chest.vdb")
         p.prepare(volume)
 
         print("[VLF] Rendering...")
@@ -235,12 +254,17 @@ def generate(ctx: typer.Context):
 
     with RelightPipeline() as p:
         print("[VLF] Loading volume...")
-        volume = load_vdb(assets_dir / "MRI-Head.vdb")
+        volume = load_vdb(assets_dir / "CT-Chest.vdb")
         p.prepare(volume)
 
         print("[VLF] Rendering...")
         img = p.render(
-            {"levoy_path": config.working_dir / "img_levoy.png", "yaw": math.pi / 2.0}
+            {
+                "levoy_path": config.working_dir / "img_levoy.png",
+                "pitch": math.pi / 2.0,
+                "yaw": 0,
+                "roll": math.pi / 2.0,
+            }
         )
 
         print("[VLF] Saving...")
