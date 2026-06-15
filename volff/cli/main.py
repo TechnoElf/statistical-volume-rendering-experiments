@@ -252,7 +252,7 @@ def generate(ctx: typer.Context):
         p.prepare(volume)
 
         print("[VLF] Rendering...")
-        img = p.train(
+        img = p.render(
             {
                 "pitch": math.pi / 2.0,
                 "yaw": 0,

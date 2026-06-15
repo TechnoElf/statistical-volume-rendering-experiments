@@ -127,13 +127,11 @@ def train_ctx(
     model.eval()
     for p in model.parameters():
         p.requires_grad_(False)
-    model = cpu_offload(model, torch_device)
 
     ae = load_ae(config, device=torch_device)
     ae.eval()
     for p in ae.parameters():
         p.requires_grad_(False)
-    ae = cpu_offload(ae, torch_device)
 
     # img_ctx = [Image.fromarray(image)]
     img_ctx = []
