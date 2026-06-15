@@ -20,6 +20,7 @@ from volff.models.denoise import SimplePathTracerDenoiseModel
 from volff.pipelines.denoise import DenoisePipeline
 from volff.pipelines.pathtrace import PathTracePipeline
 from volff.pipelines.relight import RelightPipeline
+from volff.pvm import pvm_to_vdb
 from volff.volume import load_vdb
 
 cli = typer.Typer()
@@ -53,18 +54,11 @@ def gather(ctx: typer.Context):
     for name, info in asset_sources.items():
         print(f"[VLF] Processing {name}...")
         subprocess.run(["pvmdds", assets_dir / name])
-        subprocess.run(
-            [
-                "python",
-                "scripts/pvm_to_vdb.py",
-                assets_dir / name,
-                "--scale-x",
-                str(info["scale"][0]),
-                "--scale-y",
-                str(info["scale"][1]),
-                "--scale-z",
-                str(info["scale"][2]),
-            ]
+        pvm_to_vdb(
+            assets_dir / name,
+            scale_x=info["scale"][0],
+            scale_y=info["scale"][1],
+            scale_z=info["scale"][2],
         )
 
     print("[VLF] Done.")

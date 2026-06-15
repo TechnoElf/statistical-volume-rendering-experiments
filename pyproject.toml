@@ -3,20 +3,22 @@ name = "volff"
 version = "0.1.0"
 description = "Statistical rendering experiments"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = "~=3.13.0"
 dependencies = [
     "numpy",
     "pillow",
     "rich",
     "slangpy>=0.31.0",
     "torch>=2.0",
+    "torchvision",
     "typer",
-    "diffusers"
+    "diffusers",
+    "einops",
+    "accelerate",
+    "scipy",
 ]
 
 [project.scripts]
 volff = "volff.cli.main:main"
 
 [tool.uv]
-# pyopenvdb is not available on PyPI and must be installed separately.
-# See README.md for instructions.

@@ -26,60 +26,6 @@
 
         python = pkgs.python313;
 
-        pyopenvdb = python.pkgs.buildPythonPackage rec {
-          pname = "pyopenvdb";
-          version = "12.1.0";
-          format = "other";
-
-          src = pkgs.fetchFromGitHub {
-            owner = "AcademySoftwareFoundation";
-            repo = "openvdb";
-            tag = "v${version}";
-            hash = "sha256-28vrIlruPl1tvw2JhjIAARtord45hqCqnA9UNnu4Z70=";
-          };
-
-          nativeBuildInputs = with pkgs; [
-            cmake
-            ninja
-          ];
-
-          buildInputs = with pkgs; [
-            boost
-            onetbb
-            jemalloc
-            c-blosc
-            zlib
-            openvdb
-          ];
-
-          propagatedBuildInputs = with python.pkgs; [
-            numpy
-            nanobind
-          ];
-
-          dontUsePipInstall = true;
-          dontUseSetuptoolsBuild = true;
-
-          cmakeFlags = [
-            "-DOPENVDB_BUILD_CORE=OFF"
-            "-DOPENVDB_BUILD_BINARIES=OFF"
-            "-DOPENVDB_BUILD_PYTHON_MODULE=ON"
-            "-DOPENVDB_PYTHON_WRAP_ALL_GRID_TYPES=ON"
-            "-DUSE_NUMPY=ON"
-            "-DOpenVDB_ROOT=${pkgs.openvdb}"
-            "-Dnanobind_DIR=${python.pkgs.nanobind}/${python.sitePackages}/nanobind/cmake"
-          ];
-
-          buildPhase = ''
-            cmake --build . --target openvdb_python
-          '';
-
-          installPhase = ''
-            mkdir -p $out/${python.sitePackages}
-            cp openvdb/openvdb/python/openvdb*.so $out/${python.sitePackages}/
-          '';
-        };
-
         slangpy = python.pkgs.buildPythonPackage rec {
           pname = "slangpy";
           version = "0.31.0";
@@ -113,6 +59,34 @@
           dontStrip = true;
         };
 
+        tinyvdb = python.pkgs.buildPythonPackage rec {
+          pname = "tinyvdb";
+          version = "0.9.0";
+          format = "wheel";
+
+          src = python.pkgs.fetchPypi {
+            inherit pname version;
+            format = "wheel";
+            dist = "cp311";
+            python = "cp311";
+            abi = "abi3";
+            platform = "manylinux_2_17_x86_64.manylinux2014_x86_64";
+            hash = "sha256-KztMVUPuEZ7VsGccI+STyLmiUzLKZQqsU89Q+Mo0I0Y=";
+          };
+
+          nativeBuildInputs = with pkgs; [
+            autoPatchelfHook
+          ];
+
+          buildInputs = with pkgs; [
+            stdenv.cc.cc.lib
+          ];
+
+          propagatedBuildInputs = with python.pkgs; [];
+
+          dontStrip = true;
+        };
+
         accelerate = python.pkgs.accelerate.override {
           torch = python.pkgs.torch-bin;
         };
@@ -122,7 +96,6 @@
           numpy
           slangpy
           opensimplex
-          pyopenvdb
           torch-bin
           torchvision-bin
           typer

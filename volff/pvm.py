@@ -1,10 +1,10 @@
-import argparse
 import sys
 from pathlib import Path
 
 import numpy as np
-import openvdb as vdb
 from scipy.ndimage import zoom
+
+from volff.vdb import VDBGrid, write_vdb
 
 
 def parse_pvm(path):
@@ -82,54 +82,27 @@ def parse_pvm(path):
     return volume
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Convert PVM3 volume files to OpenVDB format."
-    )
-    parser.add_argument("input", type=Path, help="path to the input .pvm file")
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        help="path to the output .vdb file (default: input with .vdb extension)",
-    )
-    parser.add_argument(
-        "--scale-x",
-        type=float,
-        default=1.0,
-        metavar="SX",
-        help="scale factor along x axis (default: 1.0)",
-    )
-    parser.add_argument(
-        "--scale-y",
-        type=float,
-        default=1.0,
-        metavar="SY",
-        help="scale factor along y axis (default: 1.0)",
-    )
-    parser.add_argument(
-        "--scale-z",
-        type=float,
-        default=1.0,
-        metavar="SZ",
-        help="scale factor along z axis (default: 1.0)",
-    )
-    args = parser.parse_args()
-
-    if not args.input.exists():
-        print(f"error: input file not found: {args.input}", file=sys.stderr)
+def pvm_to_vdb(
+    input: Path,
+    output: Path | None = None,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
+    scale_z: float = 1.0,
+):
+    if not input.exists():
+        print(f"error: input file not found: {input}", file=sys.stderr)
         sys.exit(1)
 
-    output = args.output if args.output else args.input.with_suffix(".vdb")
+    output = output if output is not None else input.with_suffix(".vdb")
 
-    volume = parse_pvm(args.input)
+    volume = parse_pvm(input)
 
     target = 256
     wx, wy, wz = volume.shape
     zoom_factors = (
-        args.scale_x * target / wx,
-        args.scale_y * target / wy,
-        args.scale_z * target / wz,
+        scale_x * target / wx,
+        scale_y * target / wy,
+        scale_z * target / wz,
     )
     volume = zoom(volume, zoom_factors, order=1).astype(np.float32)
     print(f"Resampled volume to {volume.shape[0]}x{volume.shape[1]}x{volume.shape[2]}")
@@ -152,11 +125,8 @@ def main():
     volume = result
     print(f"Output volume: {volume.shape[0]}x{volume.shape[1]}x{volume.shape[2]}")
 
-    grid = vdb.FloatGrid()
-    grid.copyFromArray(volume)
-    vdb.write(str(output), grid)
+    grid = VDBGrid("density")
+    grid.set_dense((0, 0, 0), volume)
+    print(f"Active voxels: {grid.active_count()}")
+    write_vdb(str(output), grid)
     print(f"Wrote {output}")
-
-
-if __name__ == "__main__":
-    main()
