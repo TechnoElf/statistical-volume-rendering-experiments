@@ -5,6 +5,7 @@ import torch
 from einops import rearrange
 from torch import Tensor, nn
 from torch.nn import functional as F
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 
 @dataclass
@@ -298,7 +299,8 @@ class SingleStreamBlock(nn.Module):
     ) -> Tensor:
         q, k, v, mlp, mod_gate = self._qkv(x, mod)
         q, k = apply_rope(q, k, pe)
-        attn = F.scaled_dot_product_attention(q, k, v)
+        with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
+            attn = F.scaled_dot_product_attention(q, k, v)
         attn = rearrange(attn, "b h n d -> b n (h d)")
         return self._out(x, attn, mlp, mod_gate)
 
@@ -435,7 +437,8 @@ class DoubleStreamBlock(nn.Module):
             img, txt, pe, pe_ctx, mod_img, mod_txt
         )
         q, k = apply_rope(q, k, pe_full)
-        attn = F.scaled_dot_product_attention(q, k, v)
+        with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
+            attn = F.scaled_dot_product_attention(q, k, v)
         attn = rearrange(attn, "b h n d -> b n (h d)")
         txt_attn, img_attn = attn[:, :num_txt_tokens], attn[:, num_txt_tokens:]
         img, txt = self._apply_residuals(img, txt, img_attn, txt_attn, mods)
@@ -581,7 +584,8 @@ class AttnBlock(nn.Module):
         q = rearrange(q, "b c h w -> b 1 (h w) c").contiguous()
         k = rearrange(k, "b c h w -> b 1 (h w) c").contiguous()
         v = rearrange(v, "b c h w -> b 1 (h w) c").contiguous()
-        h_ = nn.functional.scaled_dot_product_attention(q, k, v)
+        with sdpa_kernel([SDPBackend.FLASH_ATTENTION, SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]):
+            h_ = nn.functional.scaled_dot_product_attention(q, k, v)
 
         return rearrange(h_, "b 1 (h w) c -> b c h w", h=h, w=w, c=c, b=b)
 
