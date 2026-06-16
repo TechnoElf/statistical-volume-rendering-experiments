@@ -12,13 +12,13 @@ from rich import print
 from torch import nn
 from torch.utils.data import DataLoader
 
+from volff.cli import renderer
+from volff.cli.renderer import RenderKind
 from volff.constants import asset_sources
 from volff.dataset import PathTracerDataset, random_sample
 from volff.hfen import HFENL1Loss
 from volff.models.denoise import SimplePathTracerDenoiseModel
 from volff.pipelines.denoise import DenoisePipeline
-from volff.pipelines.pathtrace import PathTracePipeline
-from volff.pipelines.relight import RelightPipeline
 from volff.volume import load_vdb
 
 cli = typer.Typer()
@@ -50,33 +50,6 @@ def gather(ctx: typer.Context):
         urlretrieve(info["url"], assets_dir / name)
 
     print("[VLF] Done.")
-
-
-@cli.command()
-def trace(ctx: typer.Context):
-    config = ctx.obj
-    assets_dir = config.working_dir / "assets"
-    os.makedirs(assets_dir, exist_ok=True)
-
-    with PathTracePipeline() as p:
-        print("[VLF] Loading volume...")
-        volume = load_vdb(assets_dir / "CT-Chest.vdb")
-        p.prepare(volume)
-
-        print(f"[VLF] Pathtracing...")
-        img = p.render(
-            {
-                "iterations": 512,
-                "pitch": math.pi / 2.0,
-                "yaw": 0,
-                "roll": math.pi / 2.0,
-            }
-        )
-
-        print("[VLF] Saving...")
-        Image.fromarray((img * 255).astype(np.uint8)).save(
-            config.working_dir / f"img_ref.png"
-        )
 
 
 @cli.command()
@@ -229,37 +202,30 @@ def train(
 
 
 @cli.command()
-def generate(ctx: typer.Context):
+def render(ctx: typer.Context, kind: RenderKind):
     config = ctx.obj
     assets_dir = config.working_dir / "assets"
     os.makedirs(assets_dir, exist_ok=True)
 
-    with RelightPipeline() as p:
-        print("[VLF] Loading volume...")
-        volume = load_vdb(assets_dir / "CT-Chest.vdb")
-        p.prepare(volume)
+    print("[VLF] Loading volume...")
+    volume = load_vdb(assets_dir / "CT-Chest.vdb")
 
-        print("[VLF] Rendering...")
-        # p.train(
-        #     {
-        #         "pitch": math.pi / 2.0,
-        #         "yaw": 0,
-        #         "roll": math.pi / 2.0,
-        #     }
-        # )
+    print("[VLF] Rendering...")
+    img = renderer.render(
+        kind,
+        volume,
+        {
+            "iterations": 512,
+            "pitch": math.pi / 2.0,
+            "yaw": 0,
+            "roll": math.pi / 2.0,
+        },
+    )
 
-        img = p.render(
-            {
-                "pitch": math.pi / 2.0,
-                "yaw": 0,
-                "roll": math.pi / 2.0,
-            }
-        )
-
-        print("[VLF] Saving...")
-        Image.fromarray((img * 255).astype(np.uint8)).save(
-            config.working_dir / "img_flux.png"
-        )
+    print("[VLF] Saving...")
+    Image.fromarray((img * 255).astype(np.uint8)).save(
+        config.working_dir / f"img_{kind.value}.png"
+    )
 
     print("[VLF] Done.")
 
