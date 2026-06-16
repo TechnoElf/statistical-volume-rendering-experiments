@@ -219,6 +219,8 @@ def render(ctx: typer.Context, kind: RenderKind):
             "pitch": math.pi / 2.0,
             "yaw": 0,
             "roll": math.pi / 2.0,
+            "scale": 1.5,
+            "ctx_path": "run/prompt_ctx_opt.pt",
         },
     )
 

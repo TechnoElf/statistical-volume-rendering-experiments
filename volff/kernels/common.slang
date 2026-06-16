@@ -35,7 +35,7 @@ float sampleDensity(float3 pos) {
     }
 
     float density = densities.SampleLevel(density_sampler, pos, 0);
-    if (density > 0.55) {
+    if (density > 0.47) {
         density = 1.0;
     } else {
         density = 0.0;
@@ -59,7 +59,7 @@ float3 sampleAlbedo(float3 pos) {
 
     float density = densities.SampleLevel(density_sampler, pos, 0);
     float3 albedo = float3(0.0);
-    if (density > 0.50) {
+    if (density > 0.40) {
         albedo = float3(1.0, 1.0, 1.0);
     } else {
         albedo = float3(1.0, 0.0, 0.0);

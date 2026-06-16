@@ -92,7 +92,7 @@ def rot_z_matrix(theta):
     )
 
 
-def setup_transforms(width, height, pitch, yaw, roll):
+def setup_transforms(width, height, pitch, yaw, roll, scale):
     projection = perspective(np.radians(45.0), width / height, 0.1, 100.0)
     inv_projection = np.linalg.inv(projection)
 
@@ -116,9 +116,9 @@ def setup_transforms(width, height, pitch, yaw, roll):
         @ rot_y_matrix(yaw)
         @ np.matrix(
             [
-                [2.0, 0.0, 0.0, -1.0],
-                [0.0, 2.0, 0.0, -0.8],
-                [0.0, 0.0, 1.8, -1.0],
+                [2.0 * scale, 0.0, 0.0, -1.0 * scale],
+                [0.0, 2.0 * scale, 0.0, -1.0 * scale],
+                [0.0, 0.0, 2.0 * scale, -1.0 * scale],
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )

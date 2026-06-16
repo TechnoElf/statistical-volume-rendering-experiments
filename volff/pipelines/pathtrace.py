@@ -50,6 +50,7 @@ class PathTracePipeline(Pipeline):
         roll = params.get("roll", 0.0)
         iterations = params.get("iterations", 64)
         threshold = params.get("threshold", 0.8)
+        scale = params.get("scale", 1.0)
 
         density_texture = self.ctx.device.create_texture(
             type=spy.TextureType.texture_3d,
@@ -70,7 +71,7 @@ class PathTracePipeline(Pipeline):
         sigma_s = 100.0
 
         model, inv_model, view, inv_view, projection, inv_projection = setup_transforms(
-            self.width, self.height, pitch, yaw, roll
+            self.width, self.height, pitch, yaw, roll, scale
         )
 
         for i in range(iterations):

@@ -48,6 +48,7 @@ class LevoyPipeline(Pipeline):
         pitch = params.get("pitch", 0.0)
         yaw = params.get("yaw", 0.0)
         roll = params.get("roll", 0.0)
+        scale = params.get("scale", 1.0)
 
         density_texture = self.ctx.device.create_texture(
             type=spy.TextureType.texture_3d,
@@ -68,7 +69,7 @@ class LevoyPipeline(Pipeline):
         sigma_s = 10.0
 
         model, inv_model, view, inv_view, projection, inv_projection = setup_transforms(
-            self.width, self.height, pitch, yaw, roll
+            self.width, self.height, pitch, yaw, roll, scale
         )
 
         self.kernel.dispatch(

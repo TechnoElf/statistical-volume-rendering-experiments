@@ -28,14 +28,20 @@ class RelightPipeline(Pipeline):
         if self.ctx is None:
             raise RuntimeError("Context not initialized")
 
+        ctx_path = params.get("ctx_path", "run/prompt_ctx_opt.pt")
+
         img_levoy = self.levoy_pipeline.render({**params})
-        img_flux = flux2_sampling.gen((img_levoy * 255).astype(np.uint8)[:, :, 0:3])
+        img_flux = flux2_sampling.gen(
+            (img_levoy * 255).astype(np.uint8)[:, :, 0:3], ctx_path
+        )
 
         return img_flux
 
     def train(self, params: dict):
         if self.ctx is None:
             raise RuntimeError("Context not initialized")
+
+        ctx_path = params.get("ctx_path", "run/prompt_ctx_opt.pt")
 
         img_levoy = self.levoy_pipeline.render({**params})
         img_path_tracer = self.path_tracer_pipeline.render({**params})
@@ -44,4 +50,5 @@ class RelightPipeline(Pipeline):
             (img_levoy * 255).astype(np.uint8)[:, :, 0:3],
             img_path_tracer[:, :, 0:3],
             num_iters=1,
+            ctx_path=ctx_path,
         )

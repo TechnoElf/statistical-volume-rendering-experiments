@@ -15,7 +15,10 @@ from torch import Tensor
 from volff.models.flux2 import AutoEncoder, AutoEncoderParams, Flux2, Klein4BParams
 
 
-def gen(image: np.ndarray) -> np.ndarray:
+def gen(
+    image: np.ndarray,
+    ctx_path: str = "run/prompt_ctx_opt.pt",
+) -> np.ndarray:
     config = {
         "repo_id": "black-forest-labs/FLUX.2-klein-4B",
         "ae_repo_id": "black-forest-labs/FLUX.2-dev",
@@ -46,7 +49,7 @@ def gen(image: np.ndarray) -> np.ndarray:
     with torch.no_grad():
         ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
 
-        ctx = torch.load("run/prompt_ctx_opt.pt")
+        ctx = torch.load(ctx_path)
         ctx = ctx.to(device="cuda")
         ctx, ctx_ids = batched_prc_txt(ctx)
 
