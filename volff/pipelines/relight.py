@@ -20,7 +20,7 @@ class RelightPipeline(Pipeline):
         self.levoy_pipeline = LevoyPipeline(self.ctx)
         self.levoy_pipeline.prepare(volume, int(width / 2), int(height / 2))
         self.path_tracer_pipeline = PathTracePipeline(self.ctx)
-        self.path_tracer_pipeline.prepare(volume, width, height)
+        self.path_tracer_pipeline.prepare(volume, 1360, 768)
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -42,6 +42,6 @@ class RelightPipeline(Pipeline):
 
         flux2_sampling.train_ctx(
             (img_levoy * 255).astype(np.uint8)[:, :, 0:3],
-            (img_path_tracer * 255).astype(np.uint8)[:, :, 0:3],
+            img_path_tracer[:, :, 0:3],
             num_iters=1,
         )

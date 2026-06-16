@@ -46,7 +46,7 @@ def gen(image: np.ndarray) -> np.ndarray:
     with torch.no_grad():
         ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
 
-        ctx = torch.load("run/prompt_ctx_path_traced.pt")
+        ctx = torch.load("run/prompt_ctx_opt.pt")
         ctx = ctx.to(device="cuda")
         ctx, ctx_ids = batched_prc_txt(ctx)
 
@@ -88,9 +88,9 @@ def train_ctx(
     image: np.ndarray,
     target: np.ndarray,
     num_iters: int = 100,
-    lr: float = 1e-2,
+    lr: float = 1e-3,
     seed: int | None = None,
-    ctx_path: str = "run/prompt_ctx_path_traced.pt",
+    ctx_path: str = "run/prompt_ctx_opt.pt",
 ) -> np.ndarray:
     """Optimise the ctx vector so gen(image) matches target.
 
@@ -133,8 +133,7 @@ def train_ctx(
     for p in ae.parameters():
         p.requires_grad_(False)
 
-    # img_ctx = [Image.fromarray(image)]
-    img_ctx = []
+    img_ctx = [Image.fromarray(image)]
 
     with torch.no_grad():
         ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
@@ -159,6 +158,10 @@ def train_ctx(
 
     for i in range(num_iters):
         optimizer.zero_grad()
+
+        fixed_noise = torch.randn(
+            shape, generator=generator, dtype=torch.bfloat16, device="cuda"
+        )
 
         # Cast to bfloat16 to match the model; gradients flow through the cast.
         ctx, ctx_ids = batched_prc_txt(ctx_param.bfloat16())
@@ -186,6 +189,8 @@ def train_ctx(
 
         if (i + 1) % 10 == 0:
             print(f"iter {i + 1}/{num_iters}  loss: {loss.item():.6f}")
+
+    torch.save(ctx_param.detach().cpu().bfloat16(), ctx_path)
 
     return ctx_param.detach().cpu().numpy()
 

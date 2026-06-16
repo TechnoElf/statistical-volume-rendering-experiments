@@ -1,6 +1,5 @@
 import math
 import os
-import subprocess
 from pathlib import Path
 from typing import Annotated
 from urllib.request import urlretrieve
@@ -20,7 +19,6 @@ from volff.models.denoise import SimplePathTracerDenoiseModel
 from volff.pipelines.denoise import DenoisePipeline
 from volff.pipelines.pathtrace import PathTracePipeline
 from volff.pipelines.relight import RelightPipeline
-from volff.pvm import pvm_to_vdb
 from volff.volume import load_vdb
 
 cli = typer.Typer()
@@ -50,16 +48,6 @@ def gather(ctx: typer.Context):
     for name, info in asset_sources.items():
         print(f"[VLF] Retrieving {name}...")
         urlretrieve(info["url"], assets_dir / name)
-
-    for name, info in asset_sources.items():
-        print(f"[VLF] Processing {name}...")
-        subprocess.run(["pvmdds", assets_dir / name])
-        pvm_to_vdb(
-            assets_dir / name,
-            scale_x=info["scale"][0],
-            scale_y=info["scale"][1],
-            scale_z=info["scale"][2],
-        )
 
     print("[VLF] Done.")
 
@@ -252,6 +240,14 @@ def generate(ctx: typer.Context):
         p.prepare(volume)
 
         print("[VLF] Rendering...")
+        # p.train(
+        #     {
+        #         "pitch": math.pi / 2.0,
+        #         "yaw": 0,
+        #         "roll": math.pi / 2.0,
+        #     }
+        # )
+
         img = p.render(
             {
                 "pitch": math.pi / 2.0,

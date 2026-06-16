@@ -59,34 +59,6 @@
           dontStrip = true;
         };
 
-        tinyvdb = python.pkgs.buildPythonPackage rec {
-          pname = "tinyvdb";
-          version = "0.9.0";
-          format = "wheel";
-
-          src = python.pkgs.fetchPypi {
-            inherit pname version;
-            format = "wheel";
-            dist = "cp311";
-            python = "cp311";
-            abi = "abi3";
-            platform = "manylinux_2_17_x86_64.manylinux2014_x86_64";
-            hash = "sha256-KztMVUPuEZ7VsGccI+STyLmiUzLKZQqsU89Q+Mo0I0Y=";
-          };
-
-          nativeBuildInputs = with pkgs; [
-            autoPatchelfHook
-          ];
-
-          buildInputs = with pkgs; [
-            stdenv.cc.cc.lib
-          ];
-
-          propagatedBuildInputs = with python.pkgs; [];
-
-          dontStrip = true;
-        };
-
         accelerate = python.pkgs.accelerate.override {
           torch = python.pkgs.torch-bin;
         };
