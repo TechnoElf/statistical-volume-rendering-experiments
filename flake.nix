@@ -63,6 +63,32 @@
           torch = python.pkgs.torch-bin;
         };
 
+        deepspeed = python.pkgs.buildPythonPackage rec {
+          pname = "deepspeed";
+          version = "0.19.2";
+          format = "setuptools";
+
+          src = python.pkgs.fetchPypi {
+            inherit pname version;
+            hash = "sha256-foVLbr49K/ojn4KVg3KSdjHHTlMkx/CPF85/9fawaWk=";
+          };
+
+          propagatedBuildInputs = with python.pkgs; [
+            py-cpuinfo
+            pydantic
+            hjson
+            einops
+            msgpack
+            ninja
+            numpy
+            packaging
+            psutil
+            tqdm
+            torch-bin
+            mpi4py
+          ];
+        };
+
         pythonEnv = python.withPackages (ps: with ps; [
           matplotlib
           numpy
@@ -75,6 +101,7 @@
           einops
           accelerate
           scipy
+          deepspeed
         ]);
 
         v3 = pkgs.stdenv.mkDerivation rec {

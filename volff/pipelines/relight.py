@@ -1,8 +1,8 @@
 import numpy as np
 import torch
-from PIL import Image
 
 from volff.models import flux2_sampling
+from volff.models.flux2_instance import flux2_gen, flux2_train_context
 from volff.pipelines.levoy import LevoyPipeline
 from volff.pipelines.pathtrace import PathTracePipeline
 from volff.pipelines.pipeline import Pipeline
@@ -31,9 +31,7 @@ class RelightPipeline(Pipeline):
         ctx_path = params.get("ctx_path", "run/prompt_ctx_opt.pt")
 
         img_levoy = self.levoy_pipeline.render({**params})
-        img_flux = flux2_sampling.gen(
-            (img_levoy * 255).astype(np.uint8)[:, :, 0:3], ctx_path
-        )
+        img_flux = flux2_gen((img_levoy * 255).astype(np.uint8)[:, :, 0:3], ctx_path)
 
         return img_flux
 
@@ -46,9 +44,8 @@ class RelightPipeline(Pipeline):
         img_levoy = self.levoy_pipeline.render({**params})
         img_path_tracer = self.path_tracer_pipeline.render({**params})
 
-        flux2_sampling.train_ctx(
+        flux2_train_context(
             (img_levoy * 255).astype(np.uint8)[:, :, 0:3],
             img_path_tracer[:, :, 0:3],
-            num_iters=1,
-            ctx_path=ctx_path,
+            ctx_path,
         )

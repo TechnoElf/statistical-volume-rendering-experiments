@@ -16,6 +16,8 @@ dependencies = [
     "einops",
     "accelerate",
     "scipy",
+    "deepspeed",
+    "mpi4py"
 ]
 
 [project.scripts]

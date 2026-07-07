@@ -1,201 +1,15 @@
 import math
-import random
 import sys
 
 import huggingface_hub
-import numpy as np
 import torch
 import torchvision
-from accelerate import cpu_offload
 from einops import rearrange
 from PIL import Image
 from safetensors.torch import load_file as load_sft
 from torch import Tensor
 
-from volff.models.flux2 import AutoEncoder, AutoEncoderParams, Flux2, Klein4BParams
-
-
-def gen(
-    image: np.ndarray,
-    ctx_path: str = "run/prompt_ctx_opt.pt",
-) -> np.ndarray:
-    config = {
-        "repo_id": "black-forest-labs/FLUX.2-klein-4B",
-        "ae_repo_id": "black-forest-labs/FLUX.2-dev",
-        "filename": "flux-2-klein-4b.safetensors",
-        "filename_ae": "ae.safetensors",
-        "params": Klein4BParams(),
-        "model_path": "KLEIN_4B_MODEL_PATH",
-        "defaults": {"guidance": 1.0, "num_steps": 4},
-        "fixed_params": {"guidance", "num_steps"},  # guidance and timestep distilled
-        "guidance_distilled": True,
-    }
-
-    width, height = 1360, 768
-    seed = random.randrange(2**31)
-
-    torch_device = torch.device("cuda")
-
-    model = load_flow_model(config, device=torch_device)
-    model.eval()
-    model = cpu_offload(model, torch_device)
-
-    ae = load_ae(config, device=torch_device)
-    ae.eval()
-    ae = cpu_offload(ae, torch_device)
-
-    img_ctx = [Image.fromarray(image)]
-
-    with torch.no_grad():
-        ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
-
-        ctx = torch.load(ctx_path)
-        ctx = ctx.to(device="cuda")
-        ctx, ctx_ids = batched_prc_txt(ctx)
-
-        # Create noise
-        shape = (1, 128, height // 16, width // 16)
-        generator = torch.Generator(device="cuda").manual_seed(seed)
-        randn = torch.randn(
-            shape, generator=generator, dtype=torch.bfloat16, device="cuda"
-        )
-        randn = torch.randn(
-            shape, generator=generator, dtype=torch.bfloat16, device="cuda"
-        )
-        x, x_ids = batched_prc_img(randn)
-
-        timesteps = get_schedule(config["defaults"]["num_steps"], x.shape[1])
-
-        x = denoise(
-            model,
-            x,
-            x_ids,
-            ctx,
-            ctx_ids,
-            timesteps=timesteps,
-            guidance=config["defaults"]["guidance"],
-            img_cond_seq=ref_tokens,
-            img_cond_seq_ids=ref_ids,
-        )
-
-        x = torch.cat(scatter_ids(x, x_ids)).squeeze(2)
-        x = ae.decode(x).float()
-
-    x = x.clamp(-1, 1)
-    x = rearrange(x[0], "c h w -> h w c")
-
-    return (0.5 * (x + 1.0)).cpu().numpy()
-
-
-def train_ctx(
-    image: np.ndarray,
-    target: np.ndarray,
-    num_iters: int = 100,
-    lr: float = 1e-3,
-    seed: int | None = None,
-    ctx_path: str = "run/prompt_ctx_opt.pt",
-) -> np.ndarray:
-    """Optimise the ctx vector so gen(image) matches target.
-
-    Args:
-        image:    Reference input, same format as gen's input.
-        target:   Desired output (h, w, c) float32 in [0, 1], same as gen's return.
-        num_iters: Number of gradient steps.
-        lr:       Adam learning rate.
-        seed:     Fixed noise seed for a deterministic forward pass (random if None).
-        ctx_path: Path to the initial ctx tensor.
-
-    Returns:
-        Optimised ctx as a float32 numpy array.
-    """
-    config = {
-        "repo_id": "black-forest-labs/FLUX.2-klein-4B",
-        "ae_repo_id": "black-forest-labs/FLUX.2-dev",
-        "filename": "flux-2-klein-4b.safetensors",
-        "filename_ae": "ae.safetensors",
-        "params": Klein4BParams(),
-        "model_path": "KLEIN_4B_MODEL_PATH",
-        "defaults": {"guidance": 1.0, "num_steps": 4},
-        "fixed_params": {"guidance", "num_steps"},
-        "guidance_distilled": True,
-    }
-
-    width, height = 1360, 768
-    if seed is None:
-        seed = random.randrange(2**31)
-
-    torch_device = torch.device("cuda")
-
-    model = load_flow_model(config, device=torch_device)
-    model.eval()
-    for p in model.parameters():
-        p.requires_grad_(False)
-
-    ae = load_ae(config, device=torch_device)
-    ae.eval()
-    for p in ae.parameters():
-        p.requires_grad_(False)
-
-    img_ctx = [Image.fromarray(image)]
-
-    with torch.no_grad():
-        ref_tokens, ref_ids = encode_image_refs(ae, img_ctx)
-
-    # Replicate the double-randn from gen to get the same noise for a given seed.
-    shape = (1, 128, height // 16, width // 16)
-    generator = torch.Generator(device="cuda").manual_seed(seed)
-    torch.randn(shape, generator=generator, dtype=torch.bfloat16, device="cuda")
-    fixed_noise = torch.randn(
-        shape, generator=generator, dtype=torch.bfloat16, device="cuda"
-    )
-
-    seq_len = (height // 16) * (width // 16)
-    timesteps = get_schedule(config["defaults"]["num_steps"], seq_len)
-
-    # target: (h, w, c) float [0, 1] -> (c, h, w)
-    target_t = torch.from_numpy(target).float().cuda().permute(2, 0, 1)
-
-    ctx_raw = torch.load(ctx_path).to(device="cuda")
-    ctx_param = torch.nn.Parameter(ctx_raw.clone().float())
-    optimizer = torch.optim.Adam([ctx_param], lr=lr)
-
-    for i in range(num_iters):
-        optimizer.zero_grad()
-
-        fixed_noise = torch.randn(
-            shape, generator=generator, dtype=torch.bfloat16, device="cuda"
-        )
-
-        # Cast to bfloat16 to match the model; gradients flow through the cast.
-        ctx, ctx_ids = batched_prc_txt(ctx_param.bfloat16())
-        x, x_ids = batched_prc_img(fixed_noise.clone())
-
-        x = denoise(
-            model,
-            x,
-            x_ids,
-            ctx,
-            ctx_ids,
-            timesteps=timesteps,
-            guidance=config["defaults"]["guidance"],
-            img_cond_seq=ref_tokens,
-            img_cond_seq_ids=ref_ids,
-        )
-
-        x = torch.cat(scatter_ids(x, x_ids)).squeeze(2)
-        x_decoded = ae.decode(x).float()
-        x_out = 0.5 * (x_decoded.clamp(-1, 1) + 1.0)  # (1, c, h, w) in [0, 1]
-
-        loss = torch.nn.functional.mse_loss(x_out[0], target_t)
-        loss.backward()
-        optimizer.step()
-
-        if (i + 1) % 10 == 0:
-            print(f"iter {i + 1}/{num_iters}  loss: {loss.item():.6f}")
-
-    torch.save(ctx_param.detach().cpu().bfloat16(), ctx_path)
-
-    return ctx_param.detach().cpu().numpy()
+from volff.models.flux2 import AutoEncoder, AutoEncoderParams, Flux2
 
 
 def denoise(
@@ -364,7 +178,7 @@ def default_prep(
     return img_tensor
 
 
-def encode_image_refs(ae, img_ctx: list[Image.Image]):
+def encode_image_refs(ae, img_ctx: list[Image.Image], half_precision: bool = False):
     scale = 10
 
     if len(img_ctx) > 1:
@@ -384,7 +198,10 @@ def encode_image_refs(ae, img_ctx: list[Image.Image]):
     # Encode each reference image
     encoded_refs = []
     for img in img_ctx_prep:
-        encoded = ae.encode(img[None].cuda())[0]
+        im = img[None].cuda()
+        if half_precision:
+            im = im.half()
+        encoded = ae.encode(im)[0]
         encoded_refs.append(encoded)
 
     # Create time offsets for each reference
